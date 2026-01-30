@@ -1,0 +1,55 @@
+DA FARE:
+[] capire funzionamento
+[x] collassa / espandi rami: 23/12/2025
+[] DELETE task (con gestione figli)
+[] stati (todo / done)
+[] visualizzazione “foglie”
+[] introduzione di daily_focus
+
+
+
+qweqweqwe
+
+Evidenziazione del task selezionato (click sulla riga)
+
+Stato di selezione persistente (un solo task attivo alla volta)
+
+Separazione concettuale tra task navigabile e task lavorabile
+
+Introduzione del concetto di foglia attiva
+
+Blocco della lavorabilità dei nodi non foglia
+
+Pulsante “Rendi foglia” / “Spezza in sotto-attività”
+
+Vista “Oggi”
+
+Assegnazione manuale dei task alla giornata
+
+Limite massimo di big-task giornalieri
+
+Distinzione big-task / micro-task
+
+Meccanismo di “energia di attivazione”
+
+Ordinamento dinamico per priorità + energia
+
+Stato del task (todo / doing / waiting / done)
+
+Persistenza dello stato di espansione dei rami
+
+Persistenza della selezione tra refresh
+
+Tagging leggero dei task
+
+Ricerca rapida nell’albero
+
+Vista piatta filtrata (solo foglie)
+
+Cronologia minima delle azioni
+
+Logica di dipendenze tra task
+
+Pulizia/archiviazione automatica dei task completati
+
+Migrazione futura DB (SQLite → altro)
