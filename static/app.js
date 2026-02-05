@@ -94,6 +94,21 @@ function renderNode(node) {
   addBtn.onclick = () => addSubtask(node.id);
   row.appendChild(addBtn);
 
+
+  // delete button
+  const delBtn = document.createElement("button");
+  delBtn.textContent = "🗑";
+  delBtn.onclick = () => {
+    const ok = confirm("Eliminare questo task e tutte le sotto-attività?");
+    if (!ok) return;
+
+    fetch(`/tasks/${node.id}`, { method: "DELETE" })
+      .then(loadTasks);
+  };
+  row.appendChild(delBtn);
+
+
+
   // 👉 prima la riga
   li.appendChild(row);
 

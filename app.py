@@ -35,5 +35,33 @@ def create_task():
     return "", 201
 
 
+
+# Recursive deletion of a task and its subtasks
+
+@app.route("/tasks/<int:task_id>", methods=["DELETE"])
+def delete_task(task_id):
+    delete_task_recursive(task_id)
+    return {"status": "ok"}
+
+def delete_task_recursive(task_id):
+    # trova figli
+    children = query_db(
+        "SELECT id FROM tasks WHERE parent_id = ?",
+        [task_id]
+    )
+
+    # cancella ricorsivamente i figli
+    for c in children:
+        delete_task_recursive(c["id"])
+
+    # cancella il nodo
+    execute_db(
+        "DELETE FROM tasks WHERE id = ?",
+        [task_id]
+    )
+
+
 if __name__ == "__main__":
     app.run(debug=True)
+
+

@@ -1,14 +1,15 @@
-DA FARE:
-[] capire funzionamento
+FATTO
 [x] collassa / espandi rami: 23/12/2025
-[] DELETE task (con gestione figli)
+[x] gestione task DELETE [TASK1] (5/2/2026)
+
+
+DA FARE:
+
 [] stati (todo / done)
 [] visualizzazione “foglie”
 [] introduzione di daily_focus
+[] finestra foglia [TASK2]
 
-
-
-qweqweqwe
 
 Evidenziazione del task selezionato (click sulla riga)
 
