@@ -1,0 +1,321 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 16px 20px;
+  color: #1a1a1a;
+}
+
+h1 {
+  font-size: 20px;
+  margin: 0;
+}
+
+button {
+  cursor: pointer;
+  font: inherit;
+}
+
+/* ---------- topbar ---------- */
+
+#topbar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 12px;
+}
+
+#view-switch {
+  display: flex;
+  gap: 6px;
+}
+
+.view-btn {
+  padding: 6px 12px;
+  border: 1px solid #ccc;
+  background: #f5f5f5;
+  border-radius: 4px;
+}
+
+.view-btn.active {
+  background: #1565c0;
+  color: white;
+  border-color: #1565c0;
+}
+
+/* ---------- toolbar ---------- */
+
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+#search-box {
+  flex: 1;
+  min-width: 200px;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+body:not([data-view="albero"]) .tree-only {
+  display: none;
+}
+
+/* ---------- workspace / layout ---------- */
+
+#workspace {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+#main-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+#side-panel {
+  width: 280px;
+  flex-shrink: 0;
+}
+
+#side-panel:empty {
+  display: none;
+}
+
+/* nella vista NOTE il pannello note può crescere fino a metà schermo */
+body[data-view="note"] #side-panel {
+  width: 50%;
+  max-width: 50vw;
+}
+
+/* ---------- tree ---------- */
+
+ul.tree-root, #main-panel ul {
+  list-style-type: none;
+  padding-left: 20px;
+}
+
+#main-panel > ul.tree-root {
+  padding-left: 0;
+}
+
+li {
+  margin: 4px 0;
+}
+
+.tree-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.tree-row.highlight {
+  background: #fff3b0;
+}
+
+.toggle-btn {
+  border: none;
+  background: none;
+  width: 20px;
+}
+
+.toggle-spacer {
+  display: inline-block;
+  width: 20px;
+}
+
+.node-title {
+  cursor: default;
+}
+
+.node-title.selected-node {
+  font-weight: bold;
+  text-decoration: underline;
+}
+
+.status-badge {
+  font-size: 14px;
+}
+
+.extra-badge {
+  font-size: 12px;
+}
+
+/* ---------- tables (foglie / nodi) ---------- */
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 12px;
+}
+
+th, td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid #eee;
+  font-size: 14px;
+}
+
+.leaf-title-cell {
+  cursor: pointer;
+  color: #1565c0;
+}
+
+.leaf-title-cell:hover {
+  text-decoration: underline;
+}
+
+.sort-btn {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  font-size: 12px;
+  color: #999;
+  vertical-align: middle;
+}
+
+.sort-btn.active {
+  color: #1565c0;
+  font-weight: bold;
+}
+
+/* ---------- foglie: filtri e checklist ---------- */
+
+.leaf-filter-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.filter-group-btn {
+  padding: 4px 10px;
+  border: 1px solid #ccc;
+  background: #f5f5f5;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.filter-group-btn.active {
+  background: #1565c0;
+  color: white;
+  border-color: #1565c0;
+}
+
+.root-checklist {
+  border: 1px solid #eee;
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.root-checklist h3 {
+  margin-top: 0;
+  font-size: 14px;
+}
+
+.root-checklist label {
+  display: block;
+  font-size: 13px;
+  margin: 4px 0;
+}
+
+/* ---------- note ---------- */
+
+.note-box {
+  border: 1px solid #eee;
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 10px;
+}
+
+.note-node-title {
+  font-weight: bold;
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+.note-date {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.note-box textarea {
+  width: 100%;
+  min-height: 70px;
+  font: inherit;
+  margin-bottom: 6px;
+}
+
+/* ---------- modal ---------- */
+
+#modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#modal-overlay.hidden {
+  display: none;
+}
+
+#modal-box {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  width: 360px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+#node-form label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+#node-form input,
+#node-form textarea,
+#node-form select {
+  width: 100%;
+  padding: 6px;
+  margin-top: 4px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font: inherit;
+}
+
+#node-form textarea {
+  min-height: 60px;
+}
+
+.checkbox-label {
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+}
+
+.checkbox-label input {
+  width: auto !important;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
