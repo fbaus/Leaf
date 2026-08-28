@@ -1,56 +1,175 @@
-FATTO
-[x] collassa / espandi rami: 23/12/2025
-[x] gestione task DELETE [TASK1] (5/2/2026)
+PICCOLi MIGLIORAMENTI
+- se data di esecuzione <= data allora deve comparire un simbolo di notifica anche nella vista FOGLIE e NODI
+- se deadline <= data allora deve comparire un simbolo di notifica anche nella vista FOGLIE e NODI
+- nella vista FOGLIE o NODI cambiare il nome Padre in Progetto
+- funzione per espandere/collassare un singolo nodo
+- correggere allineamento: un nodo con figli non ha il simbolo di stato quindi risulta più arretrato di un suo fratello senza figli
+- il simbolo ATTIVO (il pallino verde) lo vorrei ingrandire un po' non è molto visibile 
+- nella vista FOGLIE nella colonna descrizione vorrei che fossero riportati i primi 60 caratteri anziché solo i primi 20
 
 
-DA FARE:
-
-[] stati (todo / done)
-[] visualizzazione “foglie”
-[] introduzione di daily_focus
-[] finestra foglia [TASK2]
+MODIFICHE di ARCHITETTURA da VALUTARE:
+- se un nodo dipende dal completamento di un altro nodo non è corretto impostarlo come BLOCCATO perché non necessariamente devo sbloccarlo subito e dipende dalla priorità del nodo bloccante. Forse dovrei trovare un altro STATO per questo tipo di situazione. Forse dovrebbe esserci la possibilità di specificare la dipendenza di un nodo da un altro allora forse ogni NODO dovrebbe avere un ID...???
 
 
-Evidenziazione del task selezionato (click sulla riga)
+IN FUTURO
+- deve essere possibile spostare un nodo e tutti i suoi figli da un padre ad un altro padre all'interno dello stesso progetto
 
-Stato di selezione persistente (un solo task attivo alla volta)
 
-Separazione concettuale tra task navigabile e task lavorabile
 
-Introduzione del concetto di foglia attiva
 
-Blocco della lavorabilità dei nodi non foglia
 
-Pulsante “Rendi foglia” / “Spezza in sotto-attività”
 
-Vista “Oggi”
 
+
+
+
+
+
+
+
+
+
+
+
+Il sistema si basa su 2 database:
+
+
+DB tasks
+-----
+title: 		testo, max 20 caratteri
+description: 	testo, max 300 caratteri
+deadline: 	data, può essere NULL
+status: 	enum, può essere NULL, può assumenre i valori vedi lista sotto
+focus: 		bool, solo un task può avere FOCUS=ON in ogni momento, se viene creato un figlio ad una foglia automaticamente FOCUS=FALSE
+urgent: 	bool
+execution_date:	data, può essere NULL, sarebbe importante assegnare valore in caso di stato=PIANIFICATO o DELEGATO
+remider		bool
+expired		bool
+
+
+STATUS:
+ATTIVO		Posso lavorarci adesso
+BLOCCATO	Voglio lavorarci, ma qualcosa me lo impedisce
+PIANIFICATO	So quando lo farò, è necessario stabilire una data di pianificazione
+DELEGATO	Deve farlo qualcun altro, è necessario stabilire una data di consegna
+IN ATTESA	Non voglio lavorarci ora, ma potrebbe sbloccarsi presto quindi voglio avercelo nella coda dell'occhio
+ACCANTONATO	Me lo segno perché so che dovrò farlo prima o poi ma non voglio avercelo a vista
+DA VALUTARE	Non so ancora se sarà necessario farlo oppure se sarà annullato
+COMPLETATO	Fatto
+INTERROTTO	Non occorre più procedere
+
+
+DB notes
+-----
+id
+task_id
+created_at
+text
+
+
+
+
+
+DEFINIZIONI:
+
+NODI: ogni elemento del database, possono avere padri o figli ma non è necessario
+
+FOGLIE: nodi senza figli analogamente alle foglie di un albero che sono l'ultima parte del ramo, sono le sole unità operative ovvero si può lavorare solo sulle foglie
+
+ANTENATO: un nodo che non ha padre ma ha figli, è il cosiddetto nodo radice
+
+
+ARCHITETTURA:
+
+> Si prevedono le seguenti modalità di visualizzazione dei nodi:
+- ALBERO: vengono mostrati tutti i nodi in modo gerarchico
+- FOGLIE: vengono visualizzate solo le foglie come una lista di elementi
+- NODI: vengono visualizzati tutti i nodi come una lista di elementi
+- NOTE: vengono mostrati tutti i nodi in modo gerarchico e in una finestra a destra si possono leggere le note
+
+
+> In ogni modalità di visualizzazione accanto ad ogni foglia deve esserci un simbolo o un indicatore colorato in base al suo STATUS. (colori o simboli da definire)
+
+> in ogni modalità di visualizzazione vorrei che lato query sia calcolato:
+se data >= exectuion_date allora remider = TRUE
+se data >= deadline allora expired = TRUE
+
+
+> in ogni modalità NOTE:
+- associato ad ogni nodo ci deve essere un bottone per aggiungere una nota testuale che sarà salvata automaticamente con la data odierna. Se viene aggiunta una nota nello stesso giorno questa verrà accodata a quella scritta in precedenza.
+- selezionando un nodo nella finestra a destra vengono visualizzate le note sue e di tutti i suoi discendenti in ordine di data
+- nella finestra a destra si possono anche modificare le note
+
+
+
+> Nella modalità ALBERO si possono creare sotto-attività (figli) solo a partire da:
+- qualsiasi nodo con figli 
+- foglie con i seguenti STATUS: ATTIVO, PIANIFICATO, IN ATTESA, ACCANTONATO, DA VALUTARE
+
+> Quando si crea un figlio a partire da una foglia lo STATUS della foglia che diventa nodo padre viene cancellato.
+
+
+> Nella modalità di visualizzazione FOGLIE vorrei che: 
+- per ogni riga sia visualizzato: 
+	titolo nodo radice - titolo nodo - primi 20 caratteri della descrizione - STATUS
+- accanto ad ogni foglia ci deve essere un bottone per attivare/disattivare FOCUS
+- le foglie devono essere ordinate nei seguenti modi:
+	>> nodo radice
+	>> deadline crescente (se valore non assegnato lasciare in fondo)
+	>> STATUS
+- ci devono essere dei bottoni per filtrare le foglie in base allo STATUS in questo modo:
+	FOCUS → FOCUS
+	OPERATIVE → ATTIVO + BLOCCATO
+	PROGRAMMATE → PIANIFICATO + DELEGATO
+	APERTE → ATTIVO + BLOCCATO + PIANIFICATO + DELEGATO + IN ATTESA
+	DA SEGUIRE → IN ATTESA + DA VALUTARE
+	TUTTE → ATTIVO + BLOCCATO + PIANIFICATO + DELEGATO + IN ATTESA + DA VALUTARE + COMPLETATO + INTERROTTO + ACCANTONATO + NULL
+- ci deve anche essere a destra una colonna con la checklist di tutti i nodi ANTENATO selezionabili: tutti, in parte o uno solo in modo che solo le foglie discendenti dai nodi ANTENATI selezionati vengano rese visibili.
+- deve essere possibile selezionare la foglia e premendo un bottone passare alla modalità di visualizzazione ALBERO in cui è espanso il ramo fino alla foglia selezionata, oppure anziché un bottone ci potrebbe essere qualche funzionalità con il tasto destro se possibile...
+
+
+> Nella modalità di visualizzazione ALBERO vorrei che: 
+- ci deve essere un bottone per espandere o collassare tutto l'albero
+- per ogni nodo padre ci deve essere un bottone per espandere collassare il ramo
+- accanto ad ogni foglia deve esserci un bottone per creare figli
+- ci deve essere un campo di ricerca testuale nodi in base al testo contenuto in titolo e descrizione
+
+
+> nella modalità di visualizzazione NODI vorrei che:
+- per ogni riga sia visualizzato: 
+	titolo nodo radice - titolo nodo (se è nodo figlio) - primi 20 caratteri della descrizione - stato
+- devono essere ordinati nei seguenti modi:
+	>> nodo radice
+	>> deadline crescente (se valore non assegnato lasciare in fondo)
+
+
+> in qualsiasi modalità di visualizzazione per ogni nodo ci deve essere un bottone per aprire una finestra di configurazione del nodo in cui si possono impostare le seguenti proprietà:
+title
+description
+deadline
+status (solo nel caso di foglie altrimenti non modificabile)
+state
+execution_date
+
+
+
+
+Altre su cui riflettere ma per ora non fare niente:
 Assegnazione manuale dei task alla giornata
-
 Limite massimo di big-task giornalieri
-
 Distinzione big-task / micro-task
-
 Meccanismo di “energia di attivazione”
-
 Ordinamento dinamico per priorità + energia
-
 Stato del task (todo / doing / waiting / done)
-
 Persistenza dello stato di espansione dei rami
-
 Persistenza della selezione tra refresh
-
 Tagging leggero dei task
-
 Ricerca rapida nell’albero
-
 Vista piatta filtrata (solo foglie)
-
 Cronologia minima delle azioni
-
 Logica di dipendenze tra task
-
 Pulizia/archiviazione automatica dei task completati
-
 Migrazione futura DB (SQLite → altro)
+
+

@@ -2,41 +2,65 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <title>Task Tree</title>
-
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 20px;
-    }
-
-    h1 {
-      font-size: 20px;
-    }
-
-    ul {
-      list-style-type: none;
-      padding-left: 20px;
-    }
-
-    li {
-      margin: 4px 0;
-    }
-
-    button {
-      margin-left: 5px;
-      cursor: pointer;
-    }
-  </style>
+  <title>Leaf</title>
+  <link rel="stylesheet" href="/static/css/style.css">
 </head>
-<body>
+<body data-view="albero">
 
-  <h1>Task</h1>
+  <header id="topbar">
+    <h1>Leaf</h1>
+    <nav id="view-switch">
+      <button class="view-btn active" data-view="albero">Albero</button>
+      <button class="view-btn" data-view="foglie">Foglie</button>
+      <button class="view-btn" data-view="nodi">Nodi</button>
+      <button class="view-btn" data-view="note">Note</button>
+    </nav>
+  </header>
 
-  <button id="add-root-task">+ Progetto</button>
+  <div id="toolbar">
+    <button id="add-root-task">+ Progetto</button>
+    <button id="expand-all" class="tree-only">Espandi tutto</button>
+    <button id="collapse-all" class="tree-only">Collassa tutto</button>
+    <input id="search-box" class="tree-only" type="text" placeholder="Cerca per titolo o descrizione...">
+  </div>
 
-  <div id="task-tree"></div>
+  <div id="workspace">
+    <div id="main-panel"></div>
+    <div id="side-panel"></div>
+  </div>
 
-  <script src="/static/app.js"></script>
+  <div id="modal-overlay" class="hidden">
+    <div id="modal-box">
+      <h2 id="modal-title">Configura nodo</h2>
+      <form id="node-form">
+        <label>Titolo
+          <input id="field-title" maxlength="60" required>
+        </label>
+        <label>Descrizione
+          <textarea id="field-description" maxlength="300"></textarea>
+        </label>
+        <label>Deadline
+          <input id="field-deadline" type="date">
+        </label>
+        <label>Data esecuzione
+          <input id="field-execution-date" type="date">
+        </label>
+        <div id="field-status-wrapper">
+          <label>Status
+            <select id="field-status"></select>
+          </label>
+        </div>
+        <label class="checkbox-label">
+          <input id="field-urgent" type="checkbox"> Urgente
+        </label>
+        <div class="modal-actions">
+          <button type="submit">Salva</button>
+          <button type="button" id="modal-cancel">Annulla</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>
