@@ -1,5 +1,15 @@
 import { state, rerender } from "./state.js";
-import { byId, truncate, STATUS_META, sortRows, isLeaf, SORT_LABELS, rootTitle, sortableHeader } from "./utils.js";
+import {
+  byId,
+  truncate,
+  STATUS_META,
+  sortRows,
+  isLeaf,
+  SORT_LABELS,
+  rootTitle,
+  sortableHeader,
+  makeBadge,
+} from "./utils.js";
 import { openEditModal } from "./modal.js";
 
 export function renderNodes(mainPanel) {
@@ -43,11 +53,13 @@ export function renderNodes(mainPanel) {
     tr.appendChild(tdDesc);
 
     const tdDeadline = document.createElement("td");
-    tdDeadline.textContent = node.deadline || "—";
+    tdDeadline.append(node.deadline || "—");
+    if (node.expired) tdDeadline.appendChild(makeBadge("⚠", "Scaduto"));
     tr.appendChild(tdDeadline);
 
     const tdExecutionDate = document.createElement("td");
-    tdExecutionDate.textContent = node.execution_date || "—";
+    tdExecutionDate.append(node.execution_date || "—");
+    if (node.reminder) tdExecutionDate.appendChild(makeBadge("🔔", "Promemoria"));
     tr.appendChild(tdExecutionDate);
 
     const tdStatus = document.createElement("td");

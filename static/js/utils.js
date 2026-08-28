@@ -1,5 +1,5 @@
 export const STATUS_META = {
-  ATTIVO: { symbol: "●", color: "#2e7d32", label: "Attivo" },
+  ATTIVO: { symbol: "⬤", color: "#2e7d32", label: "Attivo" },
   BLOCCATO: { symbol: "⛔", color: "#c62828", label: "Bloccato" },
   PIANIFICATO: { symbol: "📅", color: "#1565c0", label: "Pianificato" },
   DELEGATO: { symbol: "👤", color: "#6a1b9a", label: "Delegato" },
@@ -85,7 +85,7 @@ function dateSortKey(value) {
 }
 
 export const SORT_LABELS = {
-  padre: "Padre",
+  padre: "Progetto",
   deadline: "Deadline",
   execution_date: "Data di esecuzione",
   status: "Status",
@@ -134,6 +134,23 @@ export function sortableHeader(label, key, currentSort, onSortClick) {
   th.appendChild(btn);
 
   return th;
+}
+
+export function makeBadge(symbol, title, color, className = "extra-badge") {
+  const span = document.createElement("span");
+  span.className = className;
+  span.textContent = symbol;
+  span.title = title;
+  if (color) span.style.color = color;
+  return span;
+}
+
+export function extraBadges(node) {
+  const frag = document.createDocumentFragment();
+  if (node.reminder) frag.appendChild(makeBadge("🔔", "Promemoria"));
+  if (node.expired) frag.appendChild(makeBadge("⚠", "Scaduto"));
+  if (node.urgent) frag.appendChild(makeBadge("❗", "Urgente"));
+  return frag;
 }
 
 export function matchesStatusGroup(node, groupKey) {

@@ -11,6 +11,7 @@ import {
   rootIdOf,
   SORT_LABELS,
   sortableHeader,
+  makeBadge,
 } from "./utils.js";
 import { setFocus, fetchAncestors } from "./api.js";
 import { openEditModal } from "./modal.js";
@@ -91,15 +92,17 @@ function renderTable(mainPanel, tasksById) {
     tr.appendChild(tdTitle);
 
     const tdDesc = document.createElement("td");
-    tdDesc.textContent = truncate(node.description, 20);
+    tdDesc.textContent = truncate(node.description, 60);
     tr.appendChild(tdDesc);
 
     const tdDeadline = document.createElement("td");
-    tdDeadline.textContent = node.deadline || "—";
+    tdDeadline.append(node.deadline || "—");
+    if (node.expired) tdDeadline.appendChild(makeBadge("⚠", "Scaduto"));
     tr.appendChild(tdDeadline);
 
     const tdExecutionDate = document.createElement("td");
-    tdExecutionDate.textContent = node.execution_date || "—";
+    tdExecutionDate.append(node.execution_date || "—");
+    if (node.reminder) tdExecutionDate.appendChild(makeBadge("🔔", "Promemoria"));
     tr.appendChild(tdExecutionDate);
 
     const tdStatus = document.createElement("td");

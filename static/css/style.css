@@ -144,7 +144,19 @@ li {
 }
 
 .status-badge {
+  font-size: 16px;
+  display: inline-block;
+  min-width: 16px;
+  text-align: center;
+}
+
+.branch-toggle-btn {
+  border: none;
+  background: none;
   font-size: 14px;
+  min-width: 16px;
+  color: #555;
+  cursor: pointer;
 }
 
 .extra-badge {

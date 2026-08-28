@@ -1,5 +1,13 @@
-import { state, reload } from "./state.js";
-import { buildTree, isLeaf, matchesSearch, STATUS_META, BLOCKING_STATUSES } from "./utils.js";
+import { state, reload, rerender } from "./state.js";
+import {
+  buildTree,
+  isLeaf,
+  matchesSearch,
+  STATUS_META,
+  BLOCKING_STATUSES,
+  makeBadge,
+  extraBadges,
+} from "./utils.js";
 import { deleteTask, setFocus } from "./api.js";
 import { openCreateModal, openEditModal } from "./modal.js";
 
@@ -8,30 +16,42 @@ function subtreeMatches(node, searchText) {
   return node.children.some((c) => subtreeMatches(c, searchText));
 }
 
-function makeBadge(symbol, title, color) {
-  const span = document.createElement("span");
-  span.className = "extra-badge";
-  span.textContent = symbol;
-  span.title = title;
-  if (color) span.style.color = color;
-  return span;
-}
-
 function statusBadge(node) {
-  if (!isLeaf(node)) return null;
   if (node.status) {
     const meta = STATUS_META[node.status];
-    return makeBadge(meta.symbol, meta.label, meta.color);
+    return makeBadge(meta.symbol, meta.label, meta.color, "status-badge");
   }
-  return makeBadge("○", "Nessuno status", "#999");
+  return makeBadge("○", "Nessuno status", "#999", "status-badge");
 }
 
-function extraBadges(node) {
-  const frag = document.createDocumentFragment();
-  if (node.reminder) frag.appendChild(makeBadge("🔔", "Promemoria"));
-  if (node.expired) frag.appendChild(makeBadge("⚠", "Scaduto"));
-  if (node.urgent) frag.appendChild(makeBadge("❗", "Urgente"));
-  return frag;
+// nodo stesso + tutti i discendenti che hanno a loro volta figli
+// (sono gli unici id il cui stato in expandedIds ha effetto visivo)
+function collectExpandableIds(node) {
+  if (node.children.length === 0) return [];
+  const ids = [node.id];
+  node.children.forEach((child) => {
+    ids.push(...collectExpandableIds(child));
+  });
+  return ids;
+}
+
+function branchToggleButton(node) {
+  const branchIds = collectExpandableIds(node);
+  const allExpanded = branchIds.every((id) => state.expandedIds.has(id));
+
+  const btn = document.createElement("button");
+  btn.className = "branch-toggle-btn";
+  btn.textContent = allExpanded ? "⊖" : "⊕";
+  btn.title = allExpanded ? "Collassa tutti i discendenti" : "Espandi tutti i discendenti";
+  btn.onclick = () => {
+    if (allExpanded) {
+      branchIds.forEach((id) => state.expandedIds.delete(id));
+    } else {
+      branchIds.forEach((id) => state.expandedIds.add(id));
+    }
+    rerender();
+  };
+  return btn;
 }
 
 function renderNode(node, searchText) {
@@ -68,8 +88,9 @@ function renderNode(node, searchText) {
     row.appendChild(spacer);
   }
 
-  const badge = statusBadge(node);
-  if (badge) row.appendChild(badge);
+  // stesso slot per entrambi: badge di status per le foglie,
+  // bottone espandi/collassa ramo per i nodi con figli (li tiene allineati)
+  row.appendChild(hasChildren ? branchToggleButton(node) : statusBadge(node));
 
   const title = document.createElement("span");
   title.className = "node-title";

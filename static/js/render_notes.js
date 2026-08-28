@@ -1,5 +1,5 @@
 import { state, rerender } from "./state.js";
-import { buildTree, byId } from "./utils.js";
+import { buildTree, byId, extraBadges } from "./utils.js";
 import { addNote, updateNote, fetchNotesSubtree } from "./api.js";
 
 function selectNode(nodeId) {
@@ -45,6 +45,8 @@ function renderNoteNode(node) {
   title.textContent = node.title;
   title.onclick = () => selectNode(node.id);
   row.appendChild(title);
+
+  row.appendChild(extraBadges(node));
 
   const noteBtn = document.createElement("button");
   noteBtn.textContent = "📝";

@@ -1,15 +1,19 @@
 PICCOLi MIGLIORAMENTI
-- se data di esecuzione <= data allora deve comparire un simbolo di notifica anche nella vista FOGLIE e NODI
-- se deadline <= data allora deve comparire un simbolo di notifica anche nella vista FOGLIE e NODI
-- nella vista FOGLIE o NODI cambiare il nome Padre in Progetto
-- funzione per espandere/collassare un singolo nodo
-- correggere allineamento: un nodo con figli non ha il simbolo di stato quindi risulta più arretrato di un suo fratello senza figli
-- il simbolo ATTIVO (il pallino verde) lo vorrei ingrandire un po' non è molto visibile 
-- nella vista FOGLIE nella colonna descrizione vorrei che fossero riportati i primi 60 caratteri anziché solo i primi 20
+1) se data di esecuzione <= data allora deve comparire un simbolo di notifica in tutte le viste, anche nella vista FOGLIE e NODI
+2) se deadline <= data allora deve comparire un simbolo di notifica in tutte le viste, anche nella vista FOGLIE e NODI
+3) nella vista FOGLIE o NODI cambiare il nome Padre in Progetto
+4) correggere allineamento: un nodo con figli non ha il simbolo di stato quindi risulta più arretrato di un suo fratello senza figli
+5) il simbolo ATTIVO (il pallino verde) lo vorrei ingrandire un po' non è molto visibile 
+6) nella vista FOGLIE nella colonna descrizione vorrei che fossero riportati i primi 60 caratteri anziché solo i primi 20
+7) funzione per espandere/collassare un singolo nodo. Questo potrebbe essere combinato con il punto 4 infatti per i nodi con figli si potrebbe aggiungere un simbolo per espandi tutti i figli e questo potrebbe stare nello spazio occupato dal simbolo STATUS dei nodi senza figli e quindi riallineare il tutto.
 
 
 MODIFICHE di ARCHITETTURA da VALUTARE:
 - se un nodo dipende dal completamento di un altro nodo non è corretto impostarlo come BLOCCATO perché non necessariamente devo sbloccarlo subito e dipende dalla priorità del nodo bloccante. Forse dovrei trovare un altro STATO per questo tipo di situazione. Forse dovrebbe esserci la possibilità di specificare la dipendenza di un nodo da un altro allora forse ogni NODO dovrebbe avere un ID...???
+
+- vorrei separare i nodi ATTIVI in nodi su cui posso lavorare quando voglio e nodi su cui devo lavorare il prima possibile
+
+- vorrei misurare il tempo lavorato su ogni progetto in base all'attivazione del FOCUS. Quindi poi vorrei una pagina per fare dei report giornalieri (per BEEBOLE), settimanali, mensili, totali...
 
 
 IN FUTURO
