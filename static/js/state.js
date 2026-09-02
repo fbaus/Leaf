@@ -6,9 +6,9 @@ export const state = {
   expandedIds: new Set(),
   searchText: "",
   leafFilters: {
-    statusGroup: "TUTTE",
+    statusGroup: "APERTE",
     rootIds: null, // null = tutti i progetti visibili
-    sortBy: "padre",
+    sortBy: "status",
   },
   selectedNoteNodeId: null,
   focusNewNoteInput: false,
