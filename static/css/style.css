@@ -90,8 +90,8 @@ body:not([data-view="albero"]) .tree-only {
   display: none;
 }
 
-/* nella vista NOTE il pannello note può crescere fino a metà schermo */
-body[data-view="note"] #side-panel {
+/* nella vista ALBERO il pannello note (a destra) occupa fino a metà schermo */
+body[data-view="albero"] #side-panel {
   width: 50%;
   max-width: 50vw;
 }
@@ -105,6 +105,12 @@ ul.tree-root, #main-panel ul {
 
 #main-panel > ul.tree-root {
   padding-left: 0;
+}
+
+.tree-children {
+  margin-left: 9px;
+  padding-left: 15px;
+  border-left: 2px solid #999;
 }
 
 li {
@@ -178,6 +184,20 @@ th, td {
   font-size: 14px;
 }
 
+/* larghezze fisse in percentuale (da colgroup): riempiono sempre tutta la
+   larghezza disponibile e non cambiano in base al contenuto filtrato */
+.leaves-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.leaves-table th,
+.leaves-table td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .leaf-title-cell {
   cursor: pointer;
   color: #1565c0;
@@ -242,6 +262,20 @@ th, td {
 }
 
 /* ---------- note ---------- */
+
+.note-compose {
+  border: 1px solid #1565c0;
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 16px;
+}
+
+.note-compose textarea {
+  width: 100%;
+  min-height: 60px;
+  font: inherit;
+  margin-bottom: 6px;
+}
 
 .note-box {
   border: 1px solid #eee;

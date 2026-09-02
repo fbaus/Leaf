@@ -1,4 +1,83 @@
-PICCOLi MIGLIORAMENTI
+RIFLESSIONI MIE:
+
+- La differenza fra IN ATTESA e ACCANTONATO non è chiara e forse non è necessaria.
+IN ATTESA	Non voglio lavorarci ora, ma potrebbe sbloccarsi presto quindi voglio avercelo nella coda dell'occhio
+ACCANTONATO	Non è prioritario, me lo segno perché so che dovrò farlo prima o poi ma non voglio avercelo a vista
+Io unificherei entrambi come ACCANTONATO e al posto di IN ATTESA ci metterei DIPENDENTE perché è una cosa sicuramente da fare ma in coda ad altre cose.
+
+
+
+- Lo stato DA VALUTARE forse è meglio cambiarlo in QUARANTENA è più netto...
+DA VALUTARE	Non so ancora se sarà necessario farlo oppure se sarà annullato
+
+
+
+
+
+
+
+PICCOLi MIGLIORAMENTI:
+
+- quando clicco sul titolo di una nota di testo l'ablero si deve aprire per mostrarmi il nodo in questione in modo analogo a quando clicco su un task nella vista FOGLIE
+
+
+- se STATUS = COMPLETATO o INTERROTTO allora le notifiche relative a DEADLINE e DATA di ESECUZIONE devono essere spente.
+
+- in caso di notifica DEADLINE la task si deve colorare di rosso (
+
+- in caso di notifica DEADLINE la task si deve colorare di giallo (
+
+
+
+- vorrei che nodi appartenenti allo stesso livello dell'albero abbiano il testo del titolo perfettamente allineato. Adesso invece un nodo senza figli è leggermente più a sinistra di uno con figli forse perché la larghezza occupata dalla freccia (espandi nodo) e dalla croce (espandi nodo e sue discendenze) è maggiore della larghezza spazio bianco più larghezza simbolo status.
+
+
+- la notifica di task URGENTE deve essere più visibile e deve potersi vedere anche nella vista FOGLIE
+
+
+
+MODIFICHE di ARCHITETTURA da VALUTARE CON CLAUDE PRIMA DI IMPLEMENTARE:
+
+- nella vista ALBERO vorrei colorare l'area del titolo nodo in base al livello. Per questo credo che avrebbe senso fare un array di (diciamo 30...??) colori e poi assegnare il colore in base al livello. Questo però implica la scelta di una palette, cosa su cui non credo di essere pronto... forse però si potrebbe fare una prova...
+
+
+- vorrei poter trasferire un nodo e tutti i suoi figli da un padre ad un altro. Secondo te sarebbe possibile usare una funzionalità drag&drop?
+
+
+- vorrei creare una nuova tabella nel .db che tenga traccia della dipendenza fra i nodi. Nella finestra di configurazione dovrei impostare la lista delle dipendenze del nodo (possono benissimo essere più di uno). Come faccio a specificare i nodi da cui sono dipendente? Forse ci vuole una finestra di ricerca del nodo, magari che mostra l'albero e mi permette di cliccare su un nodo? Tu come faresti?
+
+
+- se un nodo dipende dal completamento di un altro nodo assumerà lo stato di DIPENDENTE: non può essere eseguito ma non richiede un'azione diretta immediata. In nodo DIPENDENTE diventa automaticamente ATTIVO se si verifica la seguente condizione: (il nodo bloccante e tutti i suoi eventuali discendenti sono in uno dei nei seguenti stati: COMPLETATO, INTERROTTO) AND (il nodo bloccante o almeno uno di tutti i suoi eventuali discendenti sono nello stato COMPLETATO).
+
+
+- vorrei evitare di creare un nodo e di non assegnargli uno stato: che approccio adottare? Lo stato "NONE" è quello che viene assegnato ad un nodo nel momento in cui si crea un discendente quindi serve...
+
+
+- vorrei trasferire tutti i bottoni accanto ai nodi nella vista ad albero (eccetto il bottone focus) con un menu che compare cliccando con il tasto destro sul nodo stesso. Nel menu vorrei anche aggiungere Espandi tutto/ Collassa tutto e rimuovere il relativo bottone accanto al nome del nodo.
+
+
+- vorrei misurare il tempo lavorato su ogni progetto in base all'attivazione del FOCUS. Quindi poi vorrei una pagina per fare dei report giornalieri, settimanali, mensili, totali...
+
+
+- GANTT1:  a partire da ogni nodo vorrei creare una vista GANTT che mostri tutti i figli come barre in un grafico temporale sulla base di DATA di ESECUZIONE (start) e DEADLINE (end). 
+
+- GANTT2: Lo start e end di una barra possono essere trascinati e in questo modo si vanno a modificare le date DATA di ESECUZIONE e DEADLINE.
+
+- GANTT3: Sul grafico GANTT dovranno essere visualizzate anche le eventuali dipendenze fra i nodi con una freccia.
+
+- GANTT4: sarebbe anche ganzo che per ogni barra fosse possibile espanderla mostrando il GANTT di quel nodo con la possibilità di collassarla di nuovo.
+
+
+
+
+IN FUTURO
+
+- creare utilizzo ad UTENTI con accesso da più macchine diverse
+
+
+
+
+MODIFICA DA COMMITTARE
 1) se data di esecuzione <= data allora deve comparire un simbolo di notifica in tutte le viste, anche nella vista FOGLIE e NODI
 2) se deadline <= data allora deve comparire un simbolo di notifica in tutte le viste, anche nella vista FOGLIE e NODI
 3) nella vista FOGLIE o NODI cambiare il nome Padre in Progetto
@@ -6,28 +85,32 @@ PICCOLi MIGLIORAMENTI
 5) il simbolo ATTIVO (il pallino verde) lo vorrei ingrandire un po' non è molto visibile 
 6) nella vista FOGLIE nella colonna descrizione vorrei che fossero riportati i primi 60 caratteri anziché solo i primi 20
 7) funzione per espandere/collassare un singolo nodo. Questo potrebbe essere combinato con il punto 4 infatti per i nodi con figli si potrebbe aggiungere un simbolo per espandi tutti i figli e questo potrebbe stare nello spazio occupato dal simbolo STATUS dei nodi senza figli e quindi riallineare il tutto.
+- cambiare ordine colonne vista FOGLIE: a destra della colonna titolo deve esserci la colonna Status e dopo la colonna Focus.
+- la larghezza delle colonne nella vista FOGLIE deve essere sempre fissa e non cambiare in base a quale progetto sto visualizzando con il filtro progetti. La larghezza delle colonne deve essere sufficiente per il numero di caratteri dei campi e deve essere sempre uguale.
+- voglio aumentare la leggibilità della vista ALBERO, adesso faccio fatica a capire la gerarchia. Quando apro un nodo padre deve comparire una linea verticale sotto al simbolo della freccia giù che affianchi tutti i figli e nipoti del nodo in questione
+- Voglio incorporare la vista NOTE dentro la vista ALBERO. La finestra deve essere divisa a metà verticalmente, nella parte sinistra si ha la vista ALBERO con in più per ogni nodo il bottone per scrivere le note. Nella parte di destra sempre visibile l'area delle NOTE. Quando si aggiunge una nota non si apre un pop-up ma automaticamente ci si trova a scrivere nell'area note di destra.
+- voglio eliminare la vista NODI
+- il bottone "+ Progetto" deve essere presente solo nella vista ALBERO
+- appena lo status di un nodo viene posto come PIANIFICATO, DELEGATO, IN ATTESA, ACCANTONATO, DA VALUTARE, COMPLETATO o INTERROTTO se FOCUS è TRUE deve essere posto a FALSE.
+- task.db escluso con GITIGNORE
+- aggiunto CONFIG.py per dare la possibilità di specificare un percorso per il DB
 
 
-MODIFICHE di ARCHITETTURA da VALUTARE:
-- se un nodo dipende dal completamento di un altro nodo non è corretto impostarlo come BLOCCATO perché non necessariamente devo sbloccarlo subito e dipende dalla priorità del nodo bloccante. Forse dovrei trovare un altro STATO per questo tipo di situazione. Forse dovrebbe esserci la possibilità di specificare la dipendenza di un nodo da un altro allora forse ogni NODO dovrebbe avere un ID...???
+DECISIONI CONCETTUALI
 
-- vorrei separare i nodi ATTIVI in nodi su cui posso lavorare quando voglio e nodi su cui devo lavorare il prima possibile
+- non so se la DATA di ESECUZIONE ha senso oppure dovrei chiamarla data di inzio. Analizziamo per i vari STATUS:
 
-- vorrei misurare il tempo lavorato su ogni progetto in base all'attivazione del FOCUS. Quindi poi vorrei una pagina per fare dei report giornalieri (per BEEBOLE), settimanali, mensili, totali...
+ATTIVO		non ha senso: lo devo eseguire il prima possibile
+BLOCCATO	non ha senso: lo devo sbloccare il prima possibile
+PIANIFICATO	ha senso: la data di esecuzione è necessaria ma la posso anche chiamare DATA DI INIZIO
+DELEGATO	non ha senso: la data qui è la DEADLINE dell'attività
+IN ATTESA	non ha senso: se specifico una data diventa un'azione pianificata
+ACCANTONATO	non ha senso: se specifico una data diventa un'azione pianificata
+DA VALUTARE	non ha senso: se specifico una data diventa un'azione pianificata
+COMPLETATO	non ha senso
+INTERROTTO	non ha senso
 
-
-IN FUTURO
-- deve essere possibile spostare un nodo e tutti i suoi figli da un padre ad un altro padre all'interno dello stesso progetto
-
-
-
-
-
-
-
-
-
-
+ok allora ho deciso la DATA di ESECUZIONE è in pratica la data di inizio ma non cambio il nome
 
 
 
@@ -41,7 +124,7 @@ Il sistema si basa su 2 database:
 
 DB tasks
 -----
-title: 		testo, max 20 caratteri
+title: 		testo, max 60 caratteri
 description: 	testo, max 300 caratteri
 deadline: 	data, può essere NULL
 status: 	enum, può essere NULL, può assumenre i valori vedi lista sotto

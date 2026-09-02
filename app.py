@@ -11,6 +11,10 @@ ALLOWED_STATUSES = {
     "ACCANTONATO", "DA VALUTARE", "COMPLETATO", "INTERROTTO",
 }
 BLOCKING_STATUSES = {"BLOCCATO", "DELEGATO", "COMPLETATO", "INTERROTTO"}
+FOCUS_INCOMPATIBLE_STATUSES = {
+    "PIANIFICATO", "DELEGATO", "IN ATTESA", "ACCANTONATO",
+    "DA VALUTARE", "COMPLETATO", "INTERROTTO",
+}
 
 # reminder/expired non possono essere colonne GENERATED in SQLite perché
 # date('now') e' considerata non-deterministica: vanno calcolate in ogni query.
@@ -170,6 +174,10 @@ def update_task(task_id):
 
     if fields.get("status") is not None and task["children_count"] > 0:
         return {"error": "Un nodo con figli non può avere uno status"}, 409
+
+    # alcuni status non sono compatibili con il focus: se il task lo aveva, va spento
+    if fields.get("status") in FOCUS_INCOMPATIBLE_STATUSES and task["focus"]:
+        fields["focus"] = 0
 
     set_clause = ", ".join(f"{key} = ?" for key in fields)
     execute_db(

@@ -1,88 +1,74 @@
 import { state, rerender } from "./state.js";
-import { buildTree, byId, extraBadges } from "./utils.js";
+import { byId } from "./utils.js";
 import { addNote, updateNote, fetchNotesSubtree } from "./api.js";
 
-function selectNode(nodeId) {
-  state.selectedNoteNodeId = nodeId;
-  rerender();
-}
+function renderComposeBox(sidePanel, nodeId) {
+  const box = document.createElement("div");
+  box.className = "note-compose";
 
-function renderNoteNode(node) {
-  const li = document.createElement("li");
-  const row = document.createElement("div");
-  row.className = "tree-row";
+  const textarea = document.createElement("textarea");
+  textarea.placeholder = "Scrivi una nuova nota...";
+  box.appendChild(textarea);
 
-  const hasChildren = node.children.length > 0;
-  let childrenUl = null;
-
-  if (hasChildren) {
-    const toggle = document.createElement("button");
-    toggle.className = "toggle-btn";
-    const expanded = state.expandedIds.has(node.id);
-    toggle.textContent = expanded ? "▼" : "▶";
-
-    childrenUl = document.createElement("ul");
-    childrenUl.style.display = expanded ? "block" : "none";
-
-    toggle.onclick = () => {
-      const isExpanded = state.expandedIds.has(node.id);
-      if (isExpanded) state.expandedIds.delete(node.id);
-      else state.expandedIds.add(node.id);
-      childrenUl.style.display = isExpanded ? "none" : "block";
-      toggle.textContent = isExpanded ? "▶" : "▼";
-    };
-    row.appendChild(toggle);
-  } else {
-    const spacer = document.createElement("span");
-    spacer.className = "toggle-spacer";
-    row.appendChild(spacer);
-  }
-
-  const title = document.createElement("span");
-  title.className = "node-title";
-  title.title = "Clicca per vedere le note di questo nodo";
-  if (state.selectedNoteNodeId === node.id) title.classList.add("selected-node");
-  title.textContent = node.title;
-  title.onclick = () => selectNode(node.id);
-  row.appendChild(title);
-
-  row.appendChild(extraBadges(node));
-
-  const noteBtn = document.createElement("button");
-  noteBtn.textContent = "📝";
-  noteBtn.title = "Aggiungi nota";
-  noteBtn.onclick = async () => {
-    const text = prompt("Testo della nota:");
+  const addBtn = document.createElement("button");
+  addBtn.textContent = "Aggiungi nota";
+  addBtn.onclick = async () => {
+    const text = textarea.value.trim();
     if (!text) return;
     try {
-      await addNote(node.id, text);
-      state.selectedNoteNodeId = node.id;
+      await addNote(nodeId, text);
       rerender();
     } catch (err) {
       alert(err.message);
     }
   };
-  row.appendChild(noteBtn);
+  box.appendChild(addBtn);
 
-  li.appendChild(row);
+  sidePanel.appendChild(box);
 
-  if (childrenUl) {
-    node.children.forEach((c) => childrenUl.appendChild(renderNoteNode(c)));
-    li.appendChild(childrenUl);
+  if (state.focusNewNoteInput) {
+    textarea.focus();
+    state.focusNewNoteInput = false;
   }
+}
 
-  return li;
+function renderNoteBox(sidePanel, note, tasksById) {
+  const box = document.createElement("div");
+  box.className = "note-box";
+
+  const nodeLabel = document.createElement("div");
+  nodeLabel.className = "note-node-title";
+  nodeLabel.textContent = tasksById[note.task_id]?.title || "—";
+  box.appendChild(nodeLabel);
+
+  const dateLabel = document.createElement("div");
+  dateLabel.className = "note-date";
+  dateLabel.textContent = note.note_date;
+  box.appendChild(dateLabel);
+
+  const textarea = document.createElement("textarea");
+  textarea.value = note.text;
+  box.appendChild(textarea);
+
+  const saveBtn = document.createElement("button");
+  saveBtn.textContent = "Salva modifiche";
+  saveBtn.onclick = async () => {
+    try {
+      await updateNote(note.id, textarea.value);
+      rerender();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+  box.appendChild(saveBtn);
+
+  sidePanel.appendChild(box);
 }
 
 let notesRequestToken = 0;
 
-async function renderNotesPanel(sidePanel, nodeId) {
+async function loadAndRenderNotes(sidePanel, nodeId) {
   const requestToken = ++notesRequestToken;
-
-  const heading = document.createElement("h3");
-  heading.textContent = "Note";
-  sidePanel.appendChild(heading);
-
   const notes = await fetchNotesSubtree(nodeId);
 
   // una selezione più recente ha già sostituito questo pannello: non scrivere dati stantii
@@ -96,49 +82,21 @@ async function renderNotesPanel(sidePanel, nodeId) {
   }
 
   const tasksById = byId(state.tasks);
-
-  notes.forEach((note) => {
-    const box = document.createElement("div");
-    box.className = "note-box";
-
-    const nodeLabel = document.createElement("div");
-    nodeLabel.className = "note-node-title";
-    nodeLabel.textContent = tasksById[note.task_id]?.title || "—";
-    box.appendChild(nodeLabel);
-
-    const dateLabel = document.createElement("div");
-    dateLabel.className = "note-date";
-    dateLabel.textContent = note.note_date;
-    box.appendChild(dateLabel);
-
-    const textarea = document.createElement("textarea");
-    textarea.value = note.text;
-    box.appendChild(textarea);
-
-    const saveBtn = document.createElement("button");
-    saveBtn.textContent = "Salva modifiche";
-    saveBtn.onclick = async () => {
-      try {
-        await updateNote(note.id, textarea.value);
-        rerender();
-      } catch (err) {
-        alert(err.message);
-      }
-    };
-    box.appendChild(saveBtn);
-
-    sidePanel.appendChild(box);
-  });
+  notes.forEach((note) => renderNoteBox(sidePanel, note, tasksById));
 }
 
-export function renderNotesView(mainPanel, sidePanel) {
-  const tree = buildTree(state.tasks);
-  const ul = document.createElement("ul");
-  ul.className = "tree-root";
-  tree.forEach((n) => ul.appendChild(renderNoteNode(n)));
-  mainPanel.appendChild(ul);
+export function renderNotesSidePanel(sidePanel) {
+  const heading = document.createElement("h3");
+  heading.textContent = "Note";
+  sidePanel.appendChild(heading);
 
-  if (state.selectedNoteNodeId !== null) {
-    renderNotesPanel(sidePanel, state.selectedNoteNodeId);
+  if (state.selectedNoteNodeId === null) {
+    const placeholder = document.createElement("p");
+    placeholder.textContent = "Seleziona un nodo nell'albero per leggere o scrivere le sue note.";
+    sidePanel.appendChild(placeholder);
+    return;
   }
+
+  renderComposeBox(sidePanel, state.selectedNoteNodeId);
+  loadAndRenderNotes(sidePanel, state.selectedNoteNodeId);
 }

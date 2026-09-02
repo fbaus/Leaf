@@ -1,6 +1,6 @@
 import sqlite3
 
-DB_PATH = "tasks.db"
+from config import DB_PATH
 
 conn = sqlite3.connect(DB_PATH)
 cursor = conn.cursor()

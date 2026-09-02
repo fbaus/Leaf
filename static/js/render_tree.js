@@ -72,6 +72,7 @@ function renderNode(node, searchText) {
     toggle.textContent = expanded ? "▼" : "▶";
 
     childrenUl = document.createElement("ul");
+    childrenUl.className = "tree-children";
     childrenUl.style.display = expanded ? "block" : "none";
 
     toggle.onclick = () => {
@@ -94,10 +95,26 @@ function renderNode(node, searchText) {
 
   const title = document.createElement("span");
   title.className = "node-title";
+  title.title = "Clicca per leggere/scrivere le note di questo nodo";
+  if (state.selectedNoteNodeId === node.id) title.classList.add("selected-node");
   title.textContent = node.title;
+  title.onclick = () => {
+    state.selectedNoteNodeId = node.id;
+    rerender();
+  };
   row.appendChild(title);
 
   row.appendChild(extraBadges(node));
+
+  const noteBtn = document.createElement("button");
+  noteBtn.textContent = "📝";
+  noteBtn.title = "Scrivi una nota";
+  noteBtn.onclick = () => {
+    state.selectedNoteNodeId = node.id;
+    state.focusNewNoteInput = true;
+    rerender();
+  };
+  row.appendChild(noteBtn);
 
   if (isLeaf(node)) {
     const focusBtn = document.createElement("button");

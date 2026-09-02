@@ -49,6 +49,19 @@ function renderFilterBar(mainPanel) {
   mainPanel.appendChild(bar);
 }
 
+// percentuali (sommano a 100): progetto, titolo, status, focus, descrizione, deadline, esecuzione, azioni
+const COLUMN_WIDTHS = [13, 16, 12, 5, 29, 9, 12, 4];
+
+function renderColgroup(table) {
+  const colgroup = document.createElement("colgroup");
+  COLUMN_WIDTHS.forEach((width) => {
+    const col = document.createElement("col");
+    col.style.width = `${width}%`;
+    colgroup.appendChild(col);
+  });
+  table.appendChild(colgroup);
+}
+
 function renderTable(mainPanel, tasksById) {
   let leaves = state.tasks.filter(isLeaf);
   leaves = leaves.filter((n) => matchesStatusGroup(n, state.leafFilters.statusGroup));
@@ -56,6 +69,8 @@ function renderTable(mainPanel, tasksById) {
   leaves = sortRows(leaves, tasksById, state.leafFilters.sortBy);
 
   const table = document.createElement("table");
+  table.className = "leaves-table";
+  renderColgroup(table);
 
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
@@ -65,13 +80,13 @@ function renderTable(mainPanel, tasksById) {
   };
   headRow.appendChild(sortableHeader(SORT_LABELS.padre, "padre", state.leafFilters.sortBy, onSort));
   headRow.appendChild(document.createElement("th")).textContent = "Titolo";
+  headRow.appendChild(sortableHeader(SORT_LABELS.status, "status", state.leafFilters.sortBy, onSort));
+  headRow.appendChild(document.createElement("th")).textContent = "Focus";
   headRow.appendChild(document.createElement("th")).textContent = "Descrizione";
   headRow.appendChild(sortableHeader(SORT_LABELS.deadline, "deadline", state.leafFilters.sortBy, onSort));
   headRow.appendChild(
     sortableHeader(SORT_LABELS.execution_date, "execution_date", state.leafFilters.sortBy, onSort)
   );
-  headRow.appendChild(sortableHeader(SORT_LABELS.status, "status", state.leafFilters.sortBy, onSort));
-  headRow.appendChild(document.createElement("th")).textContent = "Focus";
   headRow.appendChild(document.createElement("th"));
   thead.appendChild(headRow);
   table.appendChild(thead);
@@ -90,20 +105,6 @@ function renderTable(mainPanel, tasksById) {
     tdTitle.title = "Vai nell'albero";
     tdTitle.onclick = () => jumpToTree(node.id);
     tr.appendChild(tdTitle);
-
-    const tdDesc = document.createElement("td");
-    tdDesc.textContent = truncate(node.description, 60);
-    tr.appendChild(tdDesc);
-
-    const tdDeadline = document.createElement("td");
-    tdDeadline.append(node.deadline || "—");
-    if (node.expired) tdDeadline.appendChild(makeBadge("⚠", "Scaduto"));
-    tr.appendChild(tdDeadline);
-
-    const tdExecutionDate = document.createElement("td");
-    tdExecutionDate.append(node.execution_date || "—");
-    if (node.reminder) tdExecutionDate.appendChild(makeBadge("🔔", "Promemoria"));
-    tr.appendChild(tdExecutionDate);
 
     const tdStatus = document.createElement("td");
     if (node.status) {
@@ -129,6 +130,20 @@ function renderTable(mainPanel, tasksById) {
     };
     tdFocus.appendChild(focusBtn);
     tr.appendChild(tdFocus);
+
+    const tdDesc = document.createElement("td");
+    tdDesc.textContent = truncate(node.description, 60);
+    tr.appendChild(tdDesc);
+
+    const tdDeadline = document.createElement("td");
+    tdDeadline.append(node.deadline || "—");
+    if (node.expired) tdDeadline.appendChild(makeBadge("⚠", "Scaduto"));
+    tr.appendChild(tdDeadline);
+
+    const tdExecutionDate = document.createElement("td");
+    tdExecutionDate.append(node.execution_date || "—");
+    if (node.reminder) tdExecutionDate.appendChild(makeBadge("🔔", "Promemoria"));
+    tr.appendChild(tdExecutionDate);
 
     const tdActions = document.createElement("td");
     const editBtn = document.createElement("button");

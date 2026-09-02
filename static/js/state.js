@@ -10,8 +10,8 @@ export const state = {
     rootIds: null, // null = tutti i progetti visibili
     sortBy: "padre",
   },
-  nodeSortBy: "padre",
   selectedNoteNodeId: null,
+  focusNewNoteInput: false,
   scrollToNodeId: null,
 };
 
