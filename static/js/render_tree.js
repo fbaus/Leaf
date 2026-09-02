@@ -54,6 +54,121 @@ function branchToggleButton(node) {
   return btn;
 }
 
+// ---------------------------------------------------------------------------
+// Menu contestuale (tasto destro sulla riga di un nodo)
+// ---------------------------------------------------------------------------
+
+let closeOpenMenu = null;
+
+function closeContextMenu() {
+  if (closeOpenMenu) {
+    closeOpenMenu();
+    closeOpenMenu = null;
+  }
+}
+
+function showContextMenu(x, y, items) {
+  closeContextMenu();
+
+  const menu = document.createElement("div");
+  menu.className = "context-menu";
+
+  items.forEach((item) => {
+    const btn = document.createElement("button");
+    btn.textContent = item.label;
+    btn.disabled = !!item.disabled;
+    btn.onclick = () => {
+      closeContextMenu();
+      item.onClick();
+    };
+    menu.appendChild(btn);
+  });
+
+  document.body.appendChild(menu);
+
+  // posiziona dopo l'inserimento per poter correggere se sfora la finestra
+  const rect = menu.getBoundingClientRect();
+  const left = Math.min(x, window.innerWidth - rect.width - 4);
+  const top = Math.min(y, window.innerHeight - rect.height - 4);
+  menu.style.left = `${Math.max(4, left)}px`;
+  menu.style.top = `${Math.max(4, top)}px`;
+
+  const onDocClick = (e) => {
+    if (!menu.contains(e.target)) closeContextMenu();
+  };
+  const onKeyDown = (e) => {
+    if (e.key === "Escape") closeContextMenu();
+  };
+  // registrato al giro successivo: evita che il click destro che ha aperto
+  // il menu lo richiuda subito tramite lo stesso evento
+  setTimeout(() => {
+    document.addEventListener("click", onDocClick);
+    document.addEventListener("contextmenu", onDocClick);
+    document.addEventListener("keydown", onKeyDown);
+  }, 0);
+
+  closeOpenMenu = () => {
+    menu.remove();
+    document.removeEventListener("click", onDocClick);
+    document.removeEventListener("contextmenu", onDocClick);
+    document.removeEventListener("keydown", onKeyDown);
+  };
+}
+
+function nodeContextMenuItems(node, hasChildren) {
+  const items = [];
+
+  items.push({
+    label: node.focus ? "Disattiva focus" : "Attiva focus",
+    disabled: !isLeaf(node),
+    onClick: async () => {
+      try {
+        await setFocus(node.id, !node.focus);
+        await reload();
+      } catch (err) {
+        alert(err.message);
+      }
+    },
+  });
+
+  const canAddChild = hasChildren || !node.status || !BLOCKING_STATUSES.has(node.status);
+  items.push({
+    label: "Aggiungi foglia",
+    disabled: !canAddChild,
+    onClick: () => openCreateModal(node.id),
+  });
+
+  items.push({
+    label: "Note",
+    onClick: () => {
+      state.selectedNoteNodeId = node.id;
+      state.focusNewNoteInput = true;
+      rerender();
+    },
+  });
+
+  items.push({
+    label: "Configurazione",
+    onClick: () => openEditModal(node),
+  });
+
+  items.push({
+    label: "Elimina",
+    onClick: async () => {
+      const ok = confirm("Eliminare questo task e tutte le sotto-attività?");
+      if (!ok) return;
+      try {
+        await deleteTask(node.id);
+        await reload();
+      } catch (err) {
+        alert(err.message);
+      }
+    },
+  });
+
+  return items;
+}
+
 function renderNode(node, searchText) {
   const li = document.createElement("li");
   li.dataset.nodeId = node.id;
@@ -95,7 +210,7 @@ function renderNode(node, searchText) {
 
   const title = document.createElement("span");
   title.className = "node-title";
-  title.title = "Clicca per leggere/scrivere le note di questo nodo";
+  title.title = "Clic sinistro: leggi le note. Clic destro: azioni sul nodo.";
   if (state.selectedNoteNodeId === node.id) title.classList.add("selected-node");
   title.textContent = node.title;
   title.onclick = () => {
@@ -106,58 +221,10 @@ function renderNode(node, searchText) {
 
   row.appendChild(extraBadges(node));
 
-  const noteBtn = document.createElement("button");
-  noteBtn.textContent = "📝";
-  noteBtn.title = "Scrivi una nota";
-  noteBtn.onclick = () => {
-    state.selectedNoteNodeId = node.id;
-    state.focusNewNoteInput = true;
-    rerender();
-  };
-  row.appendChild(noteBtn);
-
-  if (isLeaf(node)) {
-    const focusBtn = document.createElement("button");
-    focusBtn.textContent = node.focus ? "🎯" : "○";
-    focusBtn.title = node.focus ? "Disattiva focus" : "Attiva focus";
-    focusBtn.onclick = async () => {
-      try {
-        await setFocus(node.id, !node.focus);
-        await reload();
-      } catch (err) {
-        alert(err.message);
-      }
-    };
-    row.appendChild(focusBtn);
-  }
-
-  const canAddChild = hasChildren || !node.status || !BLOCKING_STATUSES.has(node.status);
-  const addBtn = document.createElement("button");
-  addBtn.textContent = "+";
-  addBtn.title = "Aggiungi sotto-attività";
-  addBtn.disabled = !canAddChild;
-  addBtn.onclick = () => openCreateModal(node.id);
-  row.appendChild(addBtn);
-
-  const editBtn = document.createElement("button");
-  editBtn.textContent = "⚙";
-  editBtn.title = "Configura";
-  editBtn.onclick = () => openEditModal(node);
-  row.appendChild(editBtn);
-
-  const delBtn = document.createElement("button");
-  delBtn.textContent = "🗑";
-  delBtn.onclick = async () => {
-    const ok = confirm("Eliminare questo task e tutte le sotto-attività?");
-    if (!ok) return;
-    try {
-      await deleteTask(node.id);
-      await reload();
-    } catch (err) {
-      alert(err.message);
-    }
-  };
-  row.appendChild(delBtn);
+  row.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    showContextMenu(e.clientX, e.clientY, nodeContextMenuItems(node, hasChildren));
+  });
 
   li.appendChild(row);
 

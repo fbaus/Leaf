@@ -8,6 +8,8 @@ function renderComposeBox(sidePanel, nodeId) {
 
   const textarea = document.createElement("textarea");
   textarea.placeholder = "Scrivi una nuova nota...";
+  textarea.cols = 80;
+  textarea.rows = 5;
   box.appendChild(textarea);
 
   const addBtn = document.createElement("button");

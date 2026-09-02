@@ -1,11 +1,7 @@
 RIFLESSIONI MIE:
 
-- La differenza fra IN ATTESA e ACCANTONATO non è chiara e forse non è necessaria.
-IN ATTESA	Non voglio lavorarci ora, ma potrebbe sbloccarsi presto quindi voglio avercelo nella coda dell'occhio
-ACCANTONATO	Non è prioritario, me lo segno perché so che dovrò farlo prima o poi ma non voglio avercelo a vista
-Io unificherei entrambi come ACCANTONATO e al posto di IN ATTESA ci metterei DIPENDENTE perché è una cosa sicuramente da fare ma in coda ad altre cose.
 
-
+- I task che al momento ho segnato come IN ATTESA in realtà sono tutti task dipendenti da altri task. Questi saranno quelli che diventeranno DIPENDENTE quando implementerò la dipendenza.
 
 - Lo stato DA VALUTARE forse è meglio cambiarlo in QUARANTENA è più netto...
 DA VALUTARE	Non so ancora se sarà necessario farlo oppure se sarà annullato
@@ -18,21 +14,24 @@ DA VALUTARE	Non so ancora se sarà necessario farlo oppure se sarà annullato
 
 PICCOLi MIGLIORAMENTI:
 
-- quando clicco sul titolo di una nota di testo l'ablero si deve aprire per mostrarmi il nodo in questione in modo analogo a quando clicco su un task nella vista FOGLIE
+
+- [RIMANDATO VOGLIO ESSERE SICURO PER POI LASCIARLO DEFINITIVAMENTE] voglio cambiare il nome dello status ACCANTONATO con IN LISTA
+
+- [RIMANDATO VOGLIO ESSERE SICURO PER POI LASCIARLO DEFINITIVAMENTE] voglio cambiare il nome dello status DA VALUTARE con QUARANTENA
 
 
-- se STATUS = COMPLETATO o INTERROTTO allora le notifiche relative a DEADLINE e DATA di ESECUZIONE devono essere spente.
-
-- in caso di notifica DEADLINE la task si deve colorare di rosso (
-
-- in caso di notifica DEADLINE la task si deve colorare di giallo (
+- quando clicco sul titolo di una nota di testo l'albero si deve aprire per mostrarmi il nodo in questione in modo analogo a quando clicco su un task nella vista FOGLIE
 
 
+...- per le FOGLIE nell'ALBERO sostituire lo spazio (toggle-spacer) con una foglia in SVG disegnata da me. Dovrebbe essere il logo del software. Per prima cosa creare la foglia in SVG poi chiedere a claude di fare la sostituzione...
 
-- vorrei che nodi appartenenti allo stesso livello dell'albero abbiano il testo del titolo perfettamente allineato. Adesso invece un nodo senza figli è leggermente più a sinistra di uno con figli forse perché la larghezza occupata dalla freccia (espandi nodo) e dalla croce (espandi nodo e sue discendenze) è maggiore della larghezza spazio bianco più larghezza simbolo status.
+- in entrambe le viste in caso di notifica DEADLINE la task si deve colorare di rosso (
+
+- in entrambe le viste in caso di notifica DEADLINE la task si deve colorare di giallo (
+
+- in entrambe le viste la notifica di task URGENTE la task si deve colorare di rosso (
 
 
-- la notifica di task URGENTE deve essere più visibile e deve potersi vedere anche nella vista FOGLIE
 
 
 
@@ -76,8 +75,10 @@ IN FUTURO
 
 
 
+TO COMMIT
 
-MODIFICA DA COMMITTARE
+
+COMMITTED
 1) se data di esecuzione <= data allora deve comparire un simbolo di notifica in tutte le viste, anche nella vista FOGLIE e NODI
 2) se deadline <= data allora deve comparire un simbolo di notifica in tutte le viste, anche nella vista FOGLIE e NODI
 3) nella vista FOGLIE o NODI cambiare il nome Padre in Progetto
@@ -94,6 +95,9 @@ MODIFICA DA COMMITTARE
 - appena lo status di un nodo viene posto come PIANIFICATO, DELEGATO, IN ATTESA, ACCANTONATO, DA VALUTARE, COMPLETATO o INTERROTTO se FOCUS è TRUE deve essere posto a FALSE.
 - task.db escluso con GITIGNORE
 - aggiunto CONFIG.py per dare la possibilità di specificare un percorso per il DB
+- nella vista ALBERO e NOTE quando scorro in basso per vedere i nodi più in basso voglio che scorrano solo i nodi e non i bottoni in alto.
+- se STATUS = COMPLETATO o INTERROTTO allora le notifiche relative a DEADLINE e DATA di ESECUZIONE devono essere spente.
+- vista FOGLIE visualizzata di default con filtro APERTE e ordinata per STATUS
 
 
 DECISIONI CONCETTUALI
