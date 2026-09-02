@@ -18,12 +18,15 @@ FOCUS_INCOMPATIBLE_STATUSES = {
 
 # reminder/expired non possono essere colonne GENERATED in SQLite perché
 # date('now') e' considerata non-deterministica: vanno calcolate in ogni query.
+# Su un task COMPLETATO o INTERROTTO le notifiche non hanno più senso e vanno spente.
 REMINDER_EXPIRED_SQL = """
        CASE WHEN t.execution_date IS NOT NULL
                  AND date('now', 'localtime') >= t.execution_date
+                 AND t.status IS NOT 'COMPLETATO' AND t.status IS NOT 'INTERROTTO'
             THEN 1 ELSE 0 END AS reminder,
        CASE WHEN t.deadline IS NOT NULL
                  AND date('now', 'localtime') >= t.deadline
+                 AND t.status IS NOT 'COMPLETATO' AND t.status IS NOT 'INTERROTTO'
             THEN 1 ELSE 0 END AS expired
 """
 
