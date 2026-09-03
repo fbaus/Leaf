@@ -49,8 +49,9 @@ function renderFilterBar(mainPanel) {
   mainPanel.appendChild(bar);
 }
 
-// percentuali (sommano a 100): progetto, titolo, status, focus, descrizione, deadline, esecuzione, azioni
-const COLUMN_WIDTHS = [13, 16, 12, 5, 29, 9, 12, 4];
+// percentuali (sommano a 100):
+// progetto, titolo, status, focus, descrizione, assegnato, dipendenze, esecuzione, deadline, azioni
+const COLUMN_WIDTHS = [13, 16, 6, 5, 24, 8, 6, 9, 9, 4];
 
 function renderColgroup(table) {
   const colgroup = document.createElement("colgroup");
@@ -60,6 +61,50 @@ function renderColgroup(table) {
     colgroup.appendChild(col);
   });
   table.appendChild(colgroup);
+}
+
+function showDependenciesWindow(node, tasksById) {
+  const overlay = document.createElement("div");
+  overlay.className = "deps-view-overlay";
+
+  const box = document.createElement("div");
+  box.className = "deps-view-box";
+
+  const heading = document.createElement("h3");
+  heading.textContent = `Dipendenze di "${node.title}"`;
+  box.appendChild(heading);
+
+  const depIds = node.dependency_ids || [];
+  if (depIds.length === 0) {
+    const p = document.createElement("p");
+    p.textContent = "Nessuna dipendenza.";
+    box.appendChild(p);
+  } else {
+    const ul = document.createElement("ul");
+    depIds.forEach((id) => {
+      const li = document.createElement("li");
+      const dep = tasksById[id];
+      li.textContent = dep ? dep.title : `#${id}`;
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
+  }
+
+  const closeBtn = document.createElement("button");
+  closeBtn.textContent = "Chiudi";
+  closeBtn.onclick = () => overlay.remove();
+  box.appendChild(closeBtn);
+
+  let mouseDownOnBackdrop = false;
+  overlay.addEventListener("mousedown", (e) => {
+    mouseDownOnBackdrop = e.target === overlay;
+  });
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay && mouseDownOnBackdrop) overlay.remove();
+  });
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
 }
 
 function renderTable(mainPanel, tasksById) {
@@ -83,10 +128,12 @@ function renderTable(mainPanel, tasksById) {
   headRow.appendChild(sortableHeader(SORT_LABELS.status, "status", state.leafFilters.sortBy, onSort));
   headRow.appendChild(document.createElement("th")).textContent = "Focus";
   headRow.appendChild(document.createElement("th")).textContent = "Descrizione";
-  headRow.appendChild(sortableHeader(SORT_LABELS.deadline, "deadline", state.leafFilters.sortBy, onSort));
+  headRow.appendChild(document.createElement("th")).textContent = "Assegnato";
+  headRow.appendChild(document.createElement("th")); // Dipendenze: nessun header, come le azioni
   headRow.appendChild(
     sortableHeader(SORT_LABELS.execution_date, "execution_date", state.leafFilters.sortBy, onSort)
   );
+  headRow.appendChild(sortableHeader(SORT_LABELS.deadline, "deadline", state.leafFilters.sortBy, onSort));
   headRow.appendChild(document.createElement("th"));
   thead.appendChild(headRow);
   table.appendChild(thead);
@@ -135,15 +182,28 @@ function renderTable(mainPanel, tasksById) {
     tdDesc.textContent = truncate(node.description, 60);
     tr.appendChild(tdDesc);
 
+    const tdAssegnato = document.createElement("td");
+    tdAssegnato.textContent = node.assegnato || "—";
+    tr.appendChild(tdAssegnato);
+
+    const tdDeps = document.createElement("td");
+    const depCount = (node.dependency_ids || []).length;
+    if (depCount > 0) {
+      const depsBtn = document.createElement("button");
+      depsBtn.textContent = `Dipendenze (${depCount})`;
+      depsBtn.onclick = () => showDependenciesWindow(node, tasksById);
+      tdDeps.appendChild(depsBtn);
+    }
+    tr.appendChild(tdDeps);
+
+    const tdExecutionDate = document.createElement("td");
+    tdExecutionDate.append(node.execution_date || "—");
+    tr.appendChild(tdExecutionDate);
+
     const tdDeadline = document.createElement("td");
     tdDeadline.append(node.deadline || "—");
     if (node.expired) tdDeadline.appendChild(makeBadge("⚠", "Scaduto"));
     tr.appendChild(tdDeadline);
-
-    const tdExecutionDate = document.createElement("td");
-    tdExecutionDate.append(node.execution_date || "—");
-    if (node.reminder) tdExecutionDate.appendChild(makeBadge("🔔", "Promemoria"));
-    tr.appendChild(tdExecutionDate);
 
     const tdActions = document.createElement("td");
     const editBtn = document.createElement("button");

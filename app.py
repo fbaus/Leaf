@@ -21,14 +21,10 @@ STATUS_INTERROTTO = 10
 
 CLOSED_STATUSES = {STATUS_QUARANTENA, STATUS_COMPLETATO, STATUS_INTERROTTO}
 
-# reminder/expired non possono essere colonne GENERATED in SQLite perché
-# date('now') e' considerata non-deterministica: vanno calcolate in ogni query.
-# Hanno senso solo per i task APERTI (i CHIUSI sono terminati).
-REMINDER_EXPIRED_SQL = """
-       CASE WHEN t.execution_date IS NOT NULL
-                 AND date('now', 'localtime') >= t.execution_date
-                 AND t.label = 'APERTO'
-            THEN 1 ELSE 0 END AS reminder,
+# expired non può essere una colonna GENERATED in SQLite perché date('now')
+# e' considerata non-deterministica: va calcolata in ogni query.
+# Ha senso solo per i task APERTI (i CHIUSI sono terminati).
+EXPIRED_SQL = """
        CASE WHEN t.deadline IS NOT NULL
                  AND date('now', 'localtime') >= t.deadline
                  AND t.label = 'APERTO'
@@ -127,12 +123,19 @@ def compute_open_status(execution_date, deadline, assegnato, dep_statuses, today
         return (STATUS_DIPENDENTE if effective_dp else STATUS_IN_LISTA), False
 
     if assegnato:
-        if today >= deadline:
-            return STATUS_ATTIVO, True  # escalation: l'assegnatario non ha rispettato i tempi
-        return STATUS_DELEGATO, False
+        return (STATUS_IN_RITARDO if today >= deadline else STATUS_DELEGATO), False
     if effective_dp:
-        return (STATUS_DIPENDENTE if today < execution_date else STATUS_BLOCCATO), False
-    return (STATUS_PIANIFICATO if today < execution_date else STATUS_ATTIVO), False
+        if today < execution_date:
+            return STATUS_PIANIFICATO, False
+        if today < deadline:
+            return STATUS_DIPENDENTE, False
+        return STATUS_BLOCCATO, False
+    # task semplice, senza assegnatario né dipendenze attive: appena raggiunta
+    # la data di esecuzione diventa ATTIVO ed è questa l'unica transizione
+    # segnalata con l'escalation (calendario + riga gialla)
+    if today < execution_date:
+        return STATUS_PIANIFICATO, False
+    return STATUS_ATTIVO, True
 
 
 def has_cycle_from(start_id, graph):
@@ -205,7 +208,7 @@ def get_task(task_id):
         f"""
         SELECT t.*,
                (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = t.id) AS children_count,
-               {REMINDER_EXPIRED_SQL}
+               {EXPIRED_SQL}
         FROM tasks t
         WHERE t.id = ?
         """,
@@ -223,7 +226,7 @@ def get_tasks():
         f"""
         SELECT t.*,
                (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = t.id) AS children_count,
-               {REMINDER_EXPIRED_SQL}
+               {EXPIRED_SQL}
         FROM tasks t
         ORDER BY t.id
         """
@@ -380,12 +383,15 @@ def update_task(task_id):
     except ValueError as e:
         return {"error": str(e)}, 400
 
-    # il badge di escalation torna visibile se cambia davvero una delle due date
-    # (il form invia sempre entrambe: qui confrontiamo i valori, non la sola presenza)
+    # il salvataggio dalla finestra di configurazione spegne il badge di escalation;
+    # se però le date che lo determinano cambiano davvero, si riarma (potrebbe
+    # ripresentarsi con un significato nuovo) invece di restare spento per sempre
     new_ex = fields.get("execution_date", task["execution_date"])
     new_dl = fields.get("deadline", task["deadline"])
     if new_ex != task["execution_date"] or new_dl != task["deadline"]:
         fields["escalation_seen"] = 0
+    else:
+        fields["escalation_seen"] = 1
 
     statements = []
     if fields:
@@ -396,13 +402,6 @@ def update_task(task_id):
 
     execute_transaction(statements)
 
-    return {"status": "ok"}
-
-
-@app.route("/tasks/<int:task_id>/config-opened", methods=["PATCH"])
-def acknowledge_escalation(task_id):
-    """Chiamato quando si apre la finestra di configurazione: spegne il badge giallo."""
-    execute_db("UPDATE tasks SET escalation_seen = 1 WHERE id = ?", (task_id,))
     return {"status": "ok"}
 
 

@@ -1,4 +1,4 @@
-import { createTask, updateTask, acknowledgeEscalation } from "./api.js";
+import { createTask, updateTask } from "./api.js";
 import { STATUS_META, CLOSED_STATUSES, isLeaf, buildTree } from "./utils.js";
 import { state } from "./state.js";
 
@@ -198,8 +198,15 @@ export function initModal(onSaved) {
   afterSaveCallback = onSaved;
 
   cancelBtn.addEventListener("click", closeModal);
+  // chiude solo se sia il mousedown che il click sono partiti sullo sfondo:
+  // altrimenti selezionare del testo trascinando il mouse fuori dal box
+  // (es. dalla descrizione) chiuderebbe la finestra a metà modifica
+  let mouseDownOnBackdrop = false;
+  overlay.addEventListener("mousedown", (e) => {
+    mouseDownOnBackdrop = e.target === overlay;
+  });
   overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) closeModal();
+    if (e.target === overlay && mouseDownOnBackdrop) closeModal();
   });
   form.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -249,10 +256,6 @@ export function openEditModal(node) {
 
   overlay.classList.remove("hidden");
   fieldTitle.focus();
-
-  if (leaf && node.escalation) {
-    acknowledgeEscalation(node.id).catch(() => {});
-  }
 }
 
 function closeModal() {

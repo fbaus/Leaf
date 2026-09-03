@@ -452,6 +452,40 @@ th, td {
   font-weight: bold;
 }
 
+/* ---------- finestra sola-lettura delle dipendenze (vista Foglie) ---------- */
+
+.deps-view-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+}
+
+.deps-view-box {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  width: 320px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.deps-view-box h3 {
+  margin-top: 0;
+}
+
+.deps-view-box ul {
+  padding-left: 20px;
+}
+
+.deps-view-box button {
+  margin-top: 10px;
+}
+
 #modal-box {
   background: white;
   border-radius: 8px;

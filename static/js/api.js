@@ -38,10 +38,6 @@ export function setFocus(id, focus) {
   return postJson(`/tasks/${id}/focus`, "PATCH", { focus });
 }
 
-export function acknowledgeEscalation(id) {
-  return postJson(`/tasks/${id}/config-opened`, "PATCH", {});
-}
-
 export function deleteTask(id) {
   return fetch(`/tasks/${id}`, { method: "DELETE" }).then(handle);
 }

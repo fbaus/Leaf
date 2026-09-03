@@ -19,7 +19,7 @@ export const CLOSED_STATUSES = new Set([8, 9, 10]);
 
 export const STATUS_GROUPS = {
   FOCUS: null,
-  OPERATIVE: [1, 2, 3],
+  OPERATIVE: [1, 2, 3, 5],
   PROGRAMMATE: [4, 5, 6],
   APERTE: [1, 2, 3, 4, 5, 6, 7],
   "DA VALUTARE": [8],
@@ -150,7 +150,6 @@ export function makeBadge(symbol, title, color, className = "extra-badge") {
 
 export function extraBadges(node) {
   const frag = document.createDocumentFragment();
-  if (node.reminder) frag.appendChild(makeBadge("🔔", "Promemoria"));
   if (node.urgent) frag.appendChild(makeBadge("❗", "Urgente"));
   return frag;
 }
