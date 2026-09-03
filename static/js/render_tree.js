@@ -4,7 +4,6 @@ import {
   isLeaf,
   matchesSearch,
   STATUS_META,
-  BLOCKING_STATUSES,
   makeBadge,
   extraBadges,
 } from "./utils.js";
@@ -131,7 +130,7 @@ function nodeContextMenuItems(node, hasChildren) {
     },
   });
 
-  const canAddChild = hasChildren || !node.status || !BLOCKING_STATUSES.has(node.status);
+  const canAddChild = hasChildren || node.label !== "CHIUSO";
   items.push({
     label: "Aggiungi foglia",
     disabled: !canAddChild,
@@ -176,6 +175,9 @@ function renderNode(node, searchText) {
   const row = document.createElement("div");
   row.className = "tree-row";
   if (state.scrollToNodeId === node.id) row.classList.add("highlight");
+  // il rosso (scaduto) prevale sul giallo (escalation) se coincidono
+  if (node.expired) row.classList.add("row-expired");
+  else if (node.escalation) row.classList.add("row-escalation");
 
   const hasChildren = node.children.length > 0;
   let childrenUl = null;
@@ -220,6 +222,8 @@ function renderNode(node, searchText) {
   row.appendChild(title);
 
   row.appendChild(extraBadges(node));
+  if (node.expired) row.appendChild(makeBadge("⏰", "Deadline superata"));
+  else if (node.escalation) row.appendChild(makeBadge("📅", "Data di esecuzione raggiunta: era delegato"));
 
   row.addEventListener("contextmenu", (e) => {
     e.preventDefault();

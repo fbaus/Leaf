@@ -27,6 +27,18 @@
     <div id="side-panel"></div>
   </div>
 
+  <div id="dependency-picker-overlay" class="hidden">
+    <div id="dependency-picker-box">
+      <h2>Scegli le dipendenze</h2>
+      <p class="hint">Il task potrà iniziare solo quando queste dipendenze saranno risolte.</p>
+      <div id="dependency-picker-tree"></div>
+      <div class="modal-actions">
+        <button type="button" id="dependency-picker-confirm">Conferma</button>
+        <button type="button" id="dependency-picker-cancel">Annulla</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modal-overlay" class="hidden">
     <div id="modal-box">
       <h2 id="modal-title">Configura nodo</h2>
@@ -37,22 +49,43 @@
         <label>Descrizione
           <textarea id="field-description" maxlength="300"></textarea>
         </label>
-        <label>Deadline
+        <div id="field-label-wrapper">
+          <label>Stato del task
+            <select id="field-label">
+              <option value="APERTO">Aperto (gestito automaticamente)</option>
+              <option value="CHIUSO">Chiuso</option>
+            </select>
+          </label>
+        </div>
+        <div id="field-status-open-wrapper">
+          <label>Status (calcolato automaticamente)
+            <div id="field-status-computed" class="computed-status"></div>
+          </label>
+        </div>
+        <div id="field-status-closed-wrapper">
+          <label>Status
+            <select id="field-status"></select>
+          </label>
+        </div>
+        <label id="field-deadline-label">Deadline
           <input id="field-deadline" type="date">
         </label>
         <label>Data esecuzione
           <input id="field-execution-date" type="date">
         </label>
-        <div id="field-status-wrapper">
-          <label>Status
-            <select id="field-status"></select>
-          </label>
+        <label>Assegnato
+          <input id="field-assegnato" maxlength="20" placeholder="richiede EX e DL">
+        </label>
+        <div id="field-dependencies-wrapper">
+          <label>Dipendenze</label>
+          <div id="dependencies-summary">Nessuna</div>
+          <button type="button" id="dependencies-picker-btn">Scegli dipendenze...</button>
         </div>
         <label class="checkbox-label">
           <input id="field-urgent" type="checkbox"> Urgente
         </label>
         <div class="modal-actions">
-          <button type="submit">Salva</button>
+          <button type="submit" id="modal-submit">Salva</button>
           <button type="button" id="modal-cancel">Annulla</button>
         </div>
       </form>

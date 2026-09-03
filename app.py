@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from flask import Flask, jsonify, request, render_template
 from database import query_db, query_one, execute_db, execute_transaction
@@ -6,27 +6,32 @@ from database import query_db, query_one, execute_db, execute_transaction
 app = Flask(__name__)
 
 
-ALLOWED_STATUSES = {
-    "ATTIVO", "BLOCCATO", "PIANIFICATO", "DELEGATO", "IN ATTESA",
-    "ACCANTONATO", "DA VALUTARE", "COMPLETATO", "INTERROTTO",
-}
-BLOCKING_STATUSES = {"BLOCCATO", "DELEGATO", "COMPLETATO", "INTERROTTO"}
-FOCUS_INCOMPATIBLE_STATUSES = {
-    "PIANIFICATO", "DELEGATO", "IN ATTESA", "ACCANTONATO",
-    "DA VALUTARE", "COMPLETATO", "INTERROTTO",
-}
+# status: 1 ATTIVO, 2 IN RITARDO, 3 BLOCCATO, 4 PIANIFICATO, 5 DIPENDENTE,
+#         6 DELEGATO, 7 IN LISTA, 8 QUARANTENA, 9 COMPLETATO, 10 INTERROTTO
+STATUS_ATTIVO = 1
+STATUS_IN_RITARDO = 2
+STATUS_BLOCCATO = 3
+STATUS_PIANIFICATO = 4
+STATUS_DIPENDENTE = 5
+STATUS_DELEGATO = 6
+STATUS_IN_LISTA = 7
+STATUS_QUARANTENA = 8
+STATUS_COMPLETATO = 9
+STATUS_INTERROTTO = 10
+
+CLOSED_STATUSES = {STATUS_QUARANTENA, STATUS_COMPLETATO, STATUS_INTERROTTO}
 
 # reminder/expired non possono essere colonne GENERATED in SQLite perché
 # date('now') e' considerata non-deterministica: vanno calcolate in ogni query.
-# Su un task COMPLETATO o INTERROTTO le notifiche non hanno più senso e vanno spente.
+# Hanno senso solo per i task APERTI (i CHIUSI sono terminati).
 REMINDER_EXPIRED_SQL = """
        CASE WHEN t.execution_date IS NOT NULL
                  AND date('now', 'localtime') >= t.execution_date
-                 AND t.status IS NOT 'COMPLETATO' AND t.status IS NOT 'INTERROTTO'
+                 AND t.label = 'APERTO'
             THEN 1 ELSE 0 END AS reminder,
        CASE WHEN t.deadline IS NOT NULL
                  AND date('now', 'localtime') >= t.deadline
-                 AND t.status IS NOT 'COMPLETATO' AND t.status IS NOT 'INTERROTTO'
+                 AND t.label = 'APERTO'
             THEN 1 ELSE 0 END AS expired
 """
 
@@ -66,12 +71,133 @@ def validate_date(value, field_name):
     return value
 
 
-def validate_status(status):
-    if status is None:
+def validate_status(value):
+    if value is None:
         return None
-    if status not in ALLOWED_STATUSES:
-        raise ValueError(f"Status non valido: {status}")
-    return status
+    if not isinstance(value, int) or value < 1 or value > 10:
+        raise ValueError(f"Status non valido: {value}")
+    return value
+
+
+def validate_assegnato(value):
+    if value is None or value == "":
+        return None
+    if len(value) > 20:
+        raise ValueError("Assegnato troppo lungo (max 20 caratteri)")
+    return value
+
+
+def validate_label(value):
+    if value is None:
+        return None
+    if value not in ("APERTO", "CHIUSO"):
+        raise ValueError(f"Label non valida: {value}")
+    return value
+
+
+def enforce_open_task_rules(fields, execution_date, deadline, assegnato, dependency_ids):
+    """Regole 1-5 per un task APERTO. Ritorna execution_date (eventualmente auto-riempita)."""
+    if execution_date is not None and deadline is None:
+        raise ValueError("Impostando la data di esecuzione è necessario impostare anche la deadline")
+    if deadline is not None and execution_date is None:
+        execution_date = date.today().isoformat()
+        fields["execution_date"] = execution_date
+    if execution_date is not None and deadline is not None and deadline <= execution_date:
+        raise ValueError("La deadline deve essere successiva alla data di esecuzione")
+    if assegnato and (execution_date is None or deadline is None):
+        raise ValueError("Per assegnare il task servono prima data di esecuzione e deadline")
+    if assegnato and dependency_ids:
+        raise ValueError("Un task non può avere sia un assegnatario sia delle dipendenze")
+    return execution_date
+
+
+def compute_open_status(execution_date, deadline, assegnato, dep_statuses, today):
+    """Calcola (status, escalato) per un task APERTO. Nessuna ricorsione: dep_statuses
+    sono valori già memorizzati (uno stato 'risolvente' è sempre 9/10, scritto a mano
+    su un task CHIUSO, mai un valore da ricalcolare a sua volta)."""
+    has_deps = bool(dep_statuses)
+    deps_resolved = (
+        has_deps
+        and any(s == STATUS_COMPLETATO for s in dep_statuses)
+        and all(s in (STATUS_COMPLETATO, STATUS_INTERROTTO) for s in dep_statuses)
+    )
+    effective_dp = has_deps and not deps_resolved
+
+    if execution_date is None:
+        return (STATUS_DIPENDENTE if effective_dp else STATUS_IN_LISTA), False
+
+    if assegnato:
+        if today >= deadline:
+            return STATUS_ATTIVO, True  # escalation: l'assegnatario non ha rispettato i tempi
+        return STATUS_DELEGATO, False
+    if effective_dp:
+        return (STATUS_DIPENDENTE if today < execution_date else STATUS_BLOCCATO), False
+    return (STATUS_PIANIFICATO if today < execution_date else STATUS_ATTIVO), False
+
+
+def has_cycle_from(start_id, graph):
+    visiting, visited = set(), set()
+
+    def dfs(node):
+        if node in visiting:
+            return True
+        if node in visited:
+            return False
+        visiting.add(node)
+        for nxt in graph.get(node, ()):
+            if dfs(nxt):
+                return True
+        visiting.discard(node)
+        visited.add(node)
+        return False
+
+    return dfs(start_id)
+
+
+def validate_dependencies(task_id, dependency_ids):
+    """Verifica che i target esistano e che l'insieme di dipendenze non crei un ciclo
+    (anche indiretto). `task_id` è None per un task appena creato (nessun ciclo possibile)."""
+    if not dependency_ids:
+        return
+    if task_id is not None and task_id in dependency_ids:
+        raise ValueError("Un task non può dipendere da se stesso")
+
+    existing_ids = {
+        r["id"] for r in query_db(
+            f"SELECT id FROM tasks WHERE id IN ({','.join('?' * len(dependency_ids))})",
+            dependency_ids,
+        )
+    }
+    missing = set(dependency_ids) - existing_ids
+    if missing:
+        raise ValueError(f"Dipendenza inesistente: {', '.join(map(str, missing))}")
+
+    if task_id is None:
+        return  # nodo nuovo: non può ancora far parte di un ciclo
+
+    rows = query_db("SELECT task_id, depends_on_id FROM task_dependencies WHERE task_id != ?", [task_id])
+    graph = {}
+    for r in rows:
+        graph.setdefault(r["task_id"], []).append(r["depends_on_id"])
+    graph[task_id] = list(dependency_ids)
+
+    if has_cycle_from(task_id, graph):
+        raise ValueError("Questa dipendenza creerebbe un ciclo (anche indiretto)")
+
+
+def replace_dependencies_statements(task_id, dependency_ids):
+    statements = [("DELETE FROM task_dependencies WHERE task_id = ?", (task_id,))]
+    for dep_id in dependency_ids:
+        statements.append((
+            "INSERT INTO task_dependencies (task_id, depends_on_id) VALUES (?, ?)",
+            (task_id, dep_id),
+        ))
+    return statements
+
+
+def get_dependency_ids(task_id):
+    rows = query_db("SELECT depends_on_id FROM task_dependencies WHERE task_id = ?", [task_id])
+    return [r["depends_on_id"] for r in rows]
 
 
 def get_task(task_id):
@@ -102,6 +228,25 @@ def get_tasks():
         ORDER BY t.id
         """
     )
+
+    deps_by_task = {}
+    for r in query_db("SELECT task_id, depends_on_id FROM task_dependencies"):
+        deps_by_task.setdefault(r["task_id"], []).append(r["depends_on_id"])
+
+    status_by_id = {t["id"]: t["status"] for t in tasks}
+    today = date.today().isoformat()
+
+    for t in tasks:
+        t["dependency_ids"] = deps_by_task.get(t["id"], [])
+        t["escalation"] = False
+        if t["label"] == "APERTO":
+            dep_statuses = [status_by_id[d] for d in t["dependency_ids"] if d in status_by_id]
+            computed_status, escalated = compute_open_status(
+                t["execution_date"], t["deadline"], t["assegnato"], dep_statuses, today
+            )
+            t["status"] = computed_status
+            t["escalation"] = escalated and not t["escalation_seen"]
+
     return jsonify(tasks)
 
 
@@ -114,7 +259,21 @@ def create_task():
         description = validate_description(data.get("description"))
         deadline = validate_date(data.get("deadline"), "deadline")
         execution_date = validate_date(data.get("execution_date"), "execution_date")
+        assegnato = validate_assegnato(data.get("assegnato"))
+        label = validate_label(data.get("label")) or "APERTO"
         status = validate_status(data.get("status"))
+        dependency_ids = [int(x) for x in data.get("dependency_ids") or []]
+
+        fields = {}
+        if label == "APERTO":
+            execution_date = enforce_open_task_rules(fields, execution_date, deadline, assegnato, dependency_ids)
+            status = None
+        else:
+            if status not in CLOSED_STATUSES:
+                raise ValueError("Un task chiuso richiede status QUARANTENA, COMPLETATO o INTERROTTO")
+            dependency_ids = []
+
+        validate_dependencies(None, dependency_ids)
     except ValueError as e:
         return {"error": str(e)}, 400
 
@@ -124,25 +283,34 @@ def create_task():
         parent = get_task(parent_id)
         if parent is None:
             return {"error": "Nodo padre non trovato"}, 404
-        if parent["children_count"] == 0 and parent["status"] in BLOCKING_STATUSES:
-            return {"error": "Non è possibile creare sotto-attività da questa foglia (status bloccante)"}, 409
+        if parent["children_count"] == 0 and parent["label"] == "CHIUSO":
+            return {"error": "Non è possibile creare sotto-attività da questa foglia (chiusa)"}, 409
 
-    statements = [(
+    new_id = execute_db(
         """
-        INSERT INTO tasks (parent_id, title, description, deadline, execution_date, status)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO tasks (parent_id, title, description, deadline, execution_date,
+                            assegnato, label, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (parent_id, title, description, deadline, execution_date, status),
-    )]
+        (parent_id, title, description, deadline, execution_date, assegnato, label, status),
+    )
 
-    # una foglia che diventa nodo padre perde lo status e il focus
+    statements = []
+    # una foglia che diventa nodo padre perde status/focus/label e le sue dipendenze
     if parent is not None and parent["children_count"] == 0:
         statements.append((
-            "UPDATE tasks SET status = NULL, focus = 0 WHERE id = ?",
+            "UPDATE tasks SET status = NULL, focus = 0, label = NULL, assegnato = NULL WHERE id = ?",
             (parent_id,),
         ))
+        statements.append((
+            "DELETE FROM task_dependencies WHERE task_id = ? OR depends_on_id = ?",
+            (parent_id, parent_id),
+        ))
+    if dependency_ids:
+        statements.extend(replace_dependencies_statements(new_id, dependency_ids))
 
-    execute_transaction(statements)
+    if statements:
+        execute_transaction(statements)
 
     return "", 201
 
@@ -165,6 +333,10 @@ def update_task(task_id):
             fields["deadline"] = validate_date(data["deadline"], "deadline")
         if "execution_date" in data:
             fields["execution_date"] = validate_date(data["execution_date"], "execution_date")
+        if "assegnato" in data:
+            fields["assegnato"] = validate_assegnato(data["assegnato"])
+        if "label" in data:
+            fields["label"] = validate_label(data["label"])
         if "status" in data:
             fields["status"] = validate_status(data["status"])
         if "urgent" in data:
@@ -172,22 +344,65 @@ def update_task(task_id):
     except ValueError as e:
         return {"error": str(e)}, 400
 
-    if not fields:
+    dependency_ids = data.get("dependency_ids")
+    if dependency_ids is not None:
+        dependency_ids = [int(x) for x in dependency_ids]
+
+    if not fields and dependency_ids is None:
         return {"error": "Nessun campo da aggiornare"}, 400
 
-    if fields.get("status") is not None and task["children_count"] > 0:
-        return {"error": "Un nodo con figli non può avere uno status"}, 409
+    label = fields.get("label", task["label"])
+    if (fields.get("label") is not None or fields.get("status") is not None) and task["children_count"] > 0:
+        return {"error": "Un nodo con figli non può avere status/label"}, 409
 
-    # alcuni status non sono compatibili con il focus: se il task lo aveva, va spento
-    if fields.get("status") in FOCUS_INCOMPATIBLE_STATUSES and task["focus"]:
-        fields["focus"] = 0
+    execution_date = fields.get("execution_date", task["execution_date"])
+    deadline = fields.get("deadline", task["deadline"])
+    assegnato = fields.get("assegnato", task["assegnato"])
+    final_dependency_ids = dependency_ids if dependency_ids is not None else get_dependency_ids(task_id)
 
-    set_clause = ", ".join(f"{key} = ?" for key in fields)
-    execute_db(
-        f"UPDATE tasks SET {set_clause} WHERE id = ?",
-        (*fields.values(), task_id),
-    )
+    try:
+        if label == "APERTO":
+            if "status" in fields:
+                return {"error": "Lo status di un task APERTO è calcolato automaticamente"}, 409
+            execution_date = enforce_open_task_rules(fields, execution_date, deadline, assegnato, final_dependency_ids)
+            fields["status"] = None
+        else:
+            final_status = fields.get("status", task["status"])
+            if final_status not in CLOSED_STATUSES:
+                return {"error": "Un task chiuso richiede status QUARANTENA, COMPLETATO o INTERROTTO"}, 400
+            fields["status"] = final_status
+            if dependency_ids:
+                return {"error": "Un task chiuso non può avere dipendenze"}, 409
+            final_dependency_ids = []
 
+        if dependency_ids is not None:
+            validate_dependencies(task_id, dependency_ids)
+    except ValueError as e:
+        return {"error": str(e)}, 400
+
+    # il badge di escalation torna visibile se cambia davvero una delle due date
+    # (il form invia sempre entrambe: qui confrontiamo i valori, non la sola presenza)
+    new_ex = fields.get("execution_date", task["execution_date"])
+    new_dl = fields.get("deadline", task["deadline"])
+    if new_ex != task["execution_date"] or new_dl != task["deadline"]:
+        fields["escalation_seen"] = 0
+
+    statements = []
+    if fields:
+        set_clause = ", ".join(f"{key} = ?" for key in fields)
+        statements.append((f"UPDATE tasks SET {set_clause} WHERE id = ?", (*fields.values(), task_id)))
+    if dependency_ids is not None:
+        statements.extend(replace_dependencies_statements(task_id, dependency_ids))
+
+    execute_transaction(statements)
+
+    return {"status": "ok"}
+
+
+@app.route("/tasks/<int:task_id>/config-opened", methods=["PATCH"])
+def acknowledge_escalation(task_id):
+    """Chiamato quando si apre la finestra di configurazione: spegne il badge giallo."""
+    execute_db("UPDATE tasks SET escalation_seen = 1 WHERE id = ?", (task_id,))
     return {"status": "ok"}
 
 
@@ -203,6 +418,8 @@ def set_focus(task_id):
     if focus:
         if task["children_count"] > 0:
             return {"error": "Solo le foglie possono avere il focus"}, 409
+        if task["label"] == "CHIUSO":
+            return {"error": "Un task chiuso non può avere il focus"}, 409
         execute_transaction([
             ("UPDATE tasks SET focus = 0 WHERE focus = 1", ()),
             ("UPDATE tasks SET focus = 1 WHERE id = ?", (task_id,)),
@@ -215,7 +432,7 @@ def set_focus(task_id):
 
 @app.route("/tasks/<int:task_id>", methods=["DELETE"])
 def delete_task(task_id):
-    # ON DELETE CASCADE elimina automaticamente sotto-albero e note collegate
+    # ON DELETE CASCADE elimina automaticamente sotto-albero, note e dipendenze collegate
     execute_db("DELETE FROM tasks WHERE id = ?", (task_id,))
     return {"status": "ok"}
 

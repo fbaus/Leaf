@@ -1,25 +1,28 @@
+// 1 ATTIVO, 2 IN RITARDO, 3 BLOCCATO, 4 PIANIFICATO, 5 DIPENDENTE,
+// 6 DELEGATO, 7 IN LISTA, 8 QUARANTENA, 9 COMPLETATO, 10 INTERROTTO
 export const STATUS_META = {
-  ATTIVO: { symbol: "⬤", color: "#2e7d32", label: "Attivo" },
-  BLOCCATO: { symbol: "⛔", color: "#c62828", label: "Bloccato" },
-  PIANIFICATO: { symbol: "📅", color: "#1565c0", label: "Pianificato" },
-  DELEGATO: { symbol: "👤", color: "#6a1b9a", label: "Delegato" },
-  "IN ATTESA": { symbol: "⏳", color: "#ef6c00", label: "In attesa" },
-  ACCANTONATO: { symbol: "⏸", color: "#757575", label: "Accantonato" },
-  "DA VALUTARE": { symbol: "❓", color: "#f9a825", label: "Da valutare" },
-  COMPLETATO: { symbol: "✔", color: "#1b5e20", label: "Completato" },
-  INTERROTTO: { symbol: "✖", color: "#424242", label: "Interrotto" },
+  1: { symbol: "⬤", color: "#2e7d32", label: "Attivo" },
+  2: { symbol: "⏰", color: "#c62828", label: "In ritardo" },
+  3: { symbol: "⛔", color: "#ef6c00", label: "Bloccato" },
+  4: { symbol: "📅", color: "#1565c0", label: "Pianificato" },
+  5: { symbol: "🔗", color: "#6a1b9a", label: "Dipendente" },
+  6: { symbol: "👤", color: "#8e24aa", label: "Delegato" },
+  7: { symbol: "⏸", color: "#757575", label: "In lista" },
+  8: { symbol: "🔍", color: "#f9a825", label: "Quarantena" },
+  9: { symbol: "✔", color: "#1b5e20", label: "Completato" },
+  10: { symbol: "✖", color: "#424242", label: "Interrotto" },
 };
 
-export const STATUS_ORDER = Object.keys(STATUS_META);
+export const STATUS_ORDER = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-export const BLOCKING_STATUSES = new Set(["BLOCCATO", "DELEGATO", "COMPLETATO", "INTERROTTO"]);
+export const CLOSED_STATUSES = new Set([8, 9, 10]);
 
 export const STATUS_GROUPS = {
   FOCUS: null,
-  OPERATIVE: ["ATTIVO", "BLOCCATO"],
-  PROGRAMMATE: ["PIANIFICATO", "DELEGATO"],
-  APERTE: ["ATTIVO", "BLOCCATO", "PIANIFICATO", "DELEGATO", "IN ATTESA"],
-  "DA SEGUIRE": ["IN ATTESA", "DA VALUTARE"],
+  OPERATIVE: [1, 2, 3],
+  PROGRAMMATE: [4, 5, 6],
+  APERTE: [1, 2, 3, 4, 5, 6, 7],
+  "DA VALUTARE": [8],
   TUTTE: null,
 };
 
@@ -148,7 +151,6 @@ export function makeBadge(symbol, title, color, className = "extra-badge") {
 export function extraBadges(node) {
   const frag = document.createDocumentFragment();
   if (node.reminder) frag.appendChild(makeBadge("🔔", "Promemoria"));
-  if (node.expired) frag.appendChild(makeBadge("⚠", "Scaduto"));
   if (node.urgent) frag.appendChild(makeBadge("❗", "Urgente"));
   return frag;
 }
