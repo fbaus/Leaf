@@ -5,7 +5,7 @@ export const STATUS_META = {
   2: { symbol: "⏰", color: "#c62828", label: "In ritardo" },
   3: { symbol: "⛔", color: "#ef6c00", label: "Bloccato" },
   4: { symbol: "📅", color: "#1565c0", label: "Pianificato" },
-  5: { symbol: "🔗", color: "#6a1b9a", label: "Dipendente" },
+  5: { symbol: "🔗", color: "#963CE8", label: "Dipendente" },
   6: { symbol: "👤", color: "#8e24aa", label: "Delegato" },
   7: { symbol: "⏸", color: "#757575", label: "In lista" },
   8: { symbol: "🔍", color: "#f9a825", label: "Quarantena" },

@@ -65,12 +65,15 @@ button {
   flex-shrink: 0;
 }
 
-#search-box {
-  flex: 1;
-  min-width: 200px;
+.tree-search-box {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  margin-bottom: 12px;
   padding: 6px 8px;
   border: 1px solid #ccc;
   border-radius: 4px;
+  font: inherit;
 }
 
 body:not([data-view="albero"]) .tree-only {
@@ -106,10 +109,36 @@ body:not([data-view="albero"]) .tree-only {
   display: none;
 }
 
-/* nella vista ALBERO il pannello note (a destra) occupa fino a metà schermo */
+/* nella vista ALBERO il pannello note (a destra) occupa fino a metà schermo, salvo
+   ridimensionamento manuale via #panel-resize-handle (applicato inline da main.js) */
 body[data-view="albero"] #side-panel {
   width: 50%;
   max-width: 50vw;
+}
+
+#panel-resize-handle {
+  flex-shrink: 0;
+  width: 12px;
+  margin: 0 -18px;
+  cursor: col-resize;
+  position: relative;
+  z-index: 1;
+}
+
+#panel-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: #ccc;
+  transform: translateX(-50%);
+}
+
+#panel-resize-handle:hover::after {
+  background: #1565c0;
+  width: 2px;
 }
 
 /* ---------- tree ---------- */
@@ -461,44 +490,159 @@ th, td {
 
 /* ---------- note ---------- */
 
-.note-compose {
+.add-note-btn {
+  display: block;
+  margin-bottom: 14px;
+  padding: 6px 14px;
   border: 1px solid #1565c0;
-  border-radius: 6px;
-  padding: 8px;
-  margin-bottom: 16px;
+  background: #1565c0;
+  color: white;
+  border-radius: 4px;
+  font-weight: bold;
 }
 
-.note-compose textarea {
-  width: 100%;
-  min-width: 80ch;
+.confirm-box.note-modal-box {
+  width: auto;
+  max-width: 95vw;
+}
+
+.note-modal-box h3 {
+  margin-top: 0;
+}
+
+.note-modal-textarea {
+  display: block;
+  max-width: 100%;
   font: inherit;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
+  resize: vertical;
 }
 
-.note-box {
-  border: 1px solid #eee;
-  border-radius: 6px;
-  padding: 8px;
-  margin-bottom: 10px;
+.note-card {
+  margin-bottom: 20px;
+}
+
+.note-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
 }
 
 .note-node-title {
   font-weight: bold;
   font-size: 14px;
-  margin-bottom: 2px;
 }
 
-.note-date {
+.notes-search-box {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 7px;
+  margin-bottom: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font: inherit;
+}
+
+.note-history-empty {
+  color: #999;
+  margin: 0;
+}
+
+.note-entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.note-entry-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+/* pulsanti matita/espandi: sempre visibili, a sinistra della casella */
+.note-entry-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.note-entry-edit-btn,
+.note-entry-expand-btn {
+  border: 1px solid #ccc;
+  background: #f5f5f5;
+  border-radius: 4px;
   font-size: 12px;
-  color: #666;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* ogni nota è una casella a sé, ridimensionabile solo in verticale, larghezza sempre
+   quella disponibile; altezza iniziale = minimo fra il testo e ~10 righe (JS) */
+.note-entry-box {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  padding: 6px 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.note-entry-date {
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 3px;
+}
+
+.note-entry-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.note-search-highlight {
+  background: #fff3b0;
+  padding: 0 1px;
+}
+
+.note-link {
+  color: #1565c0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.note-entry-edit {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  resize: vertical;
   margin-bottom: 4px;
 }
 
-.note-box textarea {
-  width: 100%;
-  min-height: 70px;
-  font: inherit;
-  margin-bottom: 6px;
+.note-entry-save-btn {
+  font-size: 12px;
+  padding: 2px 8px;
+}
+
+.confirm-box.image-preview-box {
+  width: auto;
+  max-width: 90vw;
+}
+
+.image-preview-box img {
+  max-width: 100%;
+  max-height: 70vh;
+  display: block;
 }
 
 /* ---------- modal ---------- */

@@ -18,6 +18,10 @@ export const state = {
   calendarOpen: false,
   calendarGranularity: "giorno", // "giorno" | "settimana" | "mese" | "anno"
   calendarLeftOffset: null, // px da sinistra di #main-panel al bordo sinistro del calendario; null = default
+  notesSearchText: "",
+  expandedNoteIds: new Set(), // id delle singole note (per giorno) espanse a tutta l'altezza del testo
+  editingNoteRowIds: new Set(), // id delle singole righe-nota (per giorno) in modifica inline
+  sidePanelWidth: null, // px, larghezza #side-panel in ALBERO; null = default CSS (50%)
 };
 
 let renderCallback = () => {};

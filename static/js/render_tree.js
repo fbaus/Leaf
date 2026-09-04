@@ -384,8 +384,24 @@ function ensureRootDropZone(container) {
   });
 }
 
+function renderSearchBox(container) {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.id = "tree-search-box";
+  input.className = "tree-search-box";
+  input.placeholder = "Cerca nell'albero per titolo o descrizione...";
+  input.value = state.searchText;
+  input.dataset.preserveFocusKey = "tree-search";
+  input.oninput = (e) => {
+    state.searchText = e.target.value;
+    rerender();
+  };
+  container.appendChild(input);
+}
+
 export function renderTree(container) {
   ensureRootDropZone(container);
+  renderSearchBox(container);
 
   const searchText = state.searchText.trim();
   const tree = buildTree(state.tasks);

@@ -1,6 +1,7 @@
+import os
 from datetime import date, datetime
 
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, send_file
 from database import query_db, query_one, execute_db, execute_transaction
 
 app = Flask(__name__)
@@ -543,7 +544,7 @@ def add_note(task_id):
     if get_task(task_id) is None:
         return {"error": "Task non trovato"}, 404
 
-    stamped_text = f"[{datetime.now().strftime('%H:%M')}] {text.strip()}"
+    stamped_text = f"[{datetime.now().strftime('%d/%m/%Y %H:%M:%S')}] {text.strip()}"
 
     execute_db(
         """
@@ -551,7 +552,7 @@ def add_note(task_id):
         VALUES (?, date('now', 'localtime'), ?)
         ON CONFLICT(task_id, note_date)
         DO UPDATE SET
-            text = notes.text || char(10) || excluded.text,
+            text = excluded.text || char(10)||char(10)||char(10)||char(10)||char(10) || notes.text,
             updated_at = datetime('now', 'localtime')
         """,
         (task_id, stamped_text),
@@ -595,6 +596,87 @@ def get_notes_subtree(task_id):
         [task_id],
     )
     return jsonify(rows)
+
+
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg"}
+
+
+def open_file_in_foreground(path):
+    """Apre `path` con l'app predefinita e prova a portarla in primo piano.
+
+    os.startfile() da solo lascia la nuova finestra in background: chi la apre è il
+    processo Flask (mai in primo piano), non l'utente con un doppio click, quindi Windows
+    nega il primo piano per il suo meccanismo anti "focus stealing". ShellExecuteExW
+    restituisce l'handle del processo appena creato, che permette di chiamare
+    AllowSetForegroundWindow — il modo corretto/documentato per delegare il permesso di
+    andare in primo piano a un processo appena avviato (l'app deve comunque richiederlo da
+    sé all'avvio, cosa che la stragrande maggioranza delle app fa in automatico).
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    SEE_MASK_NOCLOSEPROCESS = 0x00000040
+    SW_SHOWNORMAL = 1
+
+    class SHELLEXECUTEINFOW(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", wintypes.DWORD),
+            ("fMask", ctypes.c_ulong),
+            ("hwnd", wintypes.HWND),
+            ("lpVerb", wintypes.LPCWSTR),
+            ("lpFile", wintypes.LPCWSTR),
+            ("lpParameters", wintypes.LPCWSTR),
+            ("lpDirectory", wintypes.LPCWSTR),
+            ("nShow", ctypes.c_int),
+            ("hInstApp", wintypes.HINSTANCE),
+            ("lpIDList", ctypes.c_void_p),
+            ("lpClass", wintypes.LPCWSTR),
+            ("hKeyClass", wintypes.HKEY),
+            ("dwHotKey", wintypes.DWORD),
+            ("hIconOrMonitor", wintypes.HANDLE),
+            ("hProcess", wintypes.HANDLE),
+        ]
+
+    sei = SHELLEXECUTEINFOW()
+    sei.cbSize = ctypes.sizeof(sei)
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS
+    sei.lpVerb = "open"
+    sei.lpFile = path
+    sei.nShow = SW_SHOWNORMAL
+
+    ok = ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(sei))
+    if not ok:
+        raise OSError(ctypes.WinError().strerror)
+
+    if sei.hProcess:
+        try:
+            pid = ctypes.windll.kernel32.GetProcessId(sei.hProcess)
+            ctypes.windll.user32.AllowSetForegroundWindow(pid)
+        finally:
+            ctypes.windll.kernel32.CloseHandle(sei.hProcess)
+
+
+@app.route("/notes/open-path", methods=["POST"])
+def open_note_path():
+    data = request.get_json() or {}
+    path = data.get("path", "")
+    if not path or not os.path.exists(path):
+        return {"error": "Percorso non trovato"}, 404
+    try:
+        open_file_in_foreground(path)
+    except OSError as e:
+        return {"error": str(e)}, 500
+    return {"status": "ok"}
+
+
+@app.route("/notes/preview", methods=["GET"])
+def preview_note_path():
+    path = request.args.get("path", "")
+    if not path or not os.path.isfile(path):
+        return {"error": "File non trovato"}, 404
+    if os.path.splitext(path)[1].lower() not in IMAGE_EXTENSIONS:
+        return {"error": "Non è un'immagine"}, 400
+    return send_file(path)
 
 
 if __name__ == "__main__":

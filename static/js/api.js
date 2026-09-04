@@ -65,3 +65,11 @@ export function updateNote(noteId, text) {
 export function fetchNotesSubtree(taskId) {
   return fetch(`/tasks/${taskId}/notes-subtree`).then(handle);
 }
+
+export function openNotePath(path) {
+  return postJson("/notes/open-path", "POST", { path });
+}
+
+export function notePreviewUrl(path) {
+  return `/notes/preview?path=${encodeURIComponent(path)}`;
+}
