@@ -152,6 +152,16 @@ li {
   background: #FFAFCF;
 }
 
+.tree-row.row-dep-highlight {
+  background: #FFFFD1;
+}
+
+.urgent-node {
+  background: #FFAFCF;
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
 .tree-row[draggable="true"] {
   cursor: grab;
 }
@@ -262,6 +272,21 @@ th, td {
 
 .leaf-title-cell:hover {
   text-decoration: underline;
+}
+
+.leaves-table tr.row-dep-highlight td {
+  background: #FFFFD1;
+}
+
+.deps-toggle-btn.active {
+  background: #FFFFD1;
+  border-color: #f9a825;
+}
+
+.deadline-warning-badge {
+  font-size: 16px;
+  font-weight: bold;
+  margin-left: 4px;
 }
 
 .sort-btn {
@@ -469,38 +494,31 @@ th, td {
   font-weight: bold;
 }
 
-/* ---------- finestra sola-lettura delle dipendenze (vista Foglie) ---------- */
+/* ---------- dialog di conferma generico (es. eliminazione nodo) ---------- */
 
-.deps-view-overlay {
+.confirm-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1100;
+  z-index: 1200;
 }
 
-.deps-view-box {
+.confirm-box {
   background: white;
   border-radius: 8px;
   padding: 20px;
-  width: 320px;
+  width: 340px;
   max-width: 90vw;
-  max-height: 80vh;
-  overflow-y: auto;
 }
 
-.deps-view-box h3 {
-  margin-top: 0;
-}
-
-.deps-view-box ul {
-  padding-left: 20px;
-}
-
-.deps-view-box button {
-  margin-top: 10px;
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
 }
 
 #modal-box {

@@ -13,8 +13,10 @@ import {
   sortableHeader,
   makeBadge,
 } from "./utils.js";
-import { setFocus, fetchAncestors } from "./api.js";
+import { setFocus } from "./api.js";
 import { openEditModal } from "./modal.js";
+import { jumpToTree } from "./navigate.js";
+import { toggleDependencyHighlight } from "./deps_highlight.js";
 
 function getRootNodes(tasks) {
   return tasks.filter((t) => t.parent_id === null);
@@ -22,14 +24,6 @@ function getRootNodes(tasks) {
 
 function isRootIncluded(rootId) {
   return state.leafFilters.rootIds === null || state.leafFilters.rootIds.has(rootId);
-}
-
-async function jumpToTree(nodeId) {
-  const ancestorIds = await fetchAncestors(nodeId);
-  ancestorIds.forEach((id) => state.expandedIds.add(id));
-  state.currentView = "albero";
-  state.scrollToNodeId = nodeId;
-  rerender();
 }
 
 function renderFilterBar(mainPanel) {
@@ -63,50 +57,6 @@ function renderColgroup(table) {
   table.appendChild(colgroup);
 }
 
-function showDependenciesWindow(node, tasksById) {
-  const overlay = document.createElement("div");
-  overlay.className = "deps-view-overlay";
-
-  const box = document.createElement("div");
-  box.className = "deps-view-box";
-
-  const heading = document.createElement("h3");
-  heading.textContent = `Dipendenze di "${node.title}"`;
-  box.appendChild(heading);
-
-  const depIds = node.dependency_ids || [];
-  if (depIds.length === 0) {
-    const p = document.createElement("p");
-    p.textContent = "Nessuna dipendenza.";
-    box.appendChild(p);
-  } else {
-    const ul = document.createElement("ul");
-    depIds.forEach((id) => {
-      const li = document.createElement("li");
-      const dep = tasksById[id];
-      li.textContent = dep ? dep.title : `#${id}`;
-      ul.appendChild(li);
-    });
-    box.appendChild(ul);
-  }
-
-  const closeBtn = document.createElement("button");
-  closeBtn.textContent = "Chiudi";
-  closeBtn.onclick = () => overlay.remove();
-  box.appendChild(closeBtn);
-
-  let mouseDownOnBackdrop = false;
-  overlay.addEventListener("mousedown", (e) => {
-    mouseDownOnBackdrop = e.target === overlay;
-  });
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay && mouseDownOnBackdrop) overlay.remove();
-  });
-
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
-}
-
 function renderTable(mainPanel, tasksById) {
   let leaves = state.tasks.filter(isLeaf);
   leaves = leaves.filter((n) => matchesStatusGroup(n, state.leafFilters.statusGroup));
@@ -128,7 +78,7 @@ function renderTable(mainPanel, tasksById) {
   headRow.appendChild(sortableHeader(SORT_LABELS.status, "status", state.leafFilters.sortBy, onSort));
   headRow.appendChild(document.createElement("th")).textContent = "Focus";
   headRow.appendChild(document.createElement("th")).textContent = "Descrizione";
-  headRow.appendChild(document.createElement("th")).textContent = "Assegnato";
+  headRow.appendChild(sortableHeader(SORT_LABELS.assegnato, "assegnato", state.leafFilters.sortBy, onSort));
   headRow.appendChild(document.createElement("th")); // Dipendenze: nessun header, come le azioni
   headRow.appendChild(
     sortableHeader(SORT_LABELS.execution_date, "execution_date", state.leafFilters.sortBy, onSort)
@@ -149,6 +99,7 @@ function renderTable(mainPanel, tasksById) {
     const tdTitle = document.createElement("td");
     tdTitle.textContent = node.title;
     tdTitle.className = "leaf-title-cell";
+    tdTitle.classList.toggle("urgent-node", !!node.urgent);
     tdTitle.title = "Vai nell'albero";
     tdTitle.onclick = () => jumpToTree(node.id);
     tr.appendChild(tdTitle);
@@ -190,20 +141,27 @@ function renderTable(mainPanel, tasksById) {
     const depCount = (node.dependency_ids || []).length;
     if (depCount > 0) {
       const depsBtn = document.createElement("button");
+      depsBtn.className = "deps-toggle-btn";
+      depsBtn.classList.toggle("active", state.highlightedDepsSourceId === node.id);
       depsBtn.textContent = `Dipendenze (${depCount})`;
-      depsBtn.onclick = () => showDependenciesWindow(node, tasksById);
+      depsBtn.onclick = () => toggleDependencyHighlight(node);
       tdDeps.appendChild(depsBtn);
     }
     tr.appendChild(tdDeps);
 
     const tdExecutionDate = document.createElement("td");
     tdExecutionDate.append(node.execution_date || "—");
+    if (node.execution_passed) {
+      tdExecutionDate.appendChild(makeBadge("..........", "Data di esecuzione superata"));
+    }
     tr.appendChild(tdExecutionDate);
 
     const tdDeadline = document.createElement("td");
     tdDeadline.append(node.deadline || "—");
-    if (node.expired) tdDeadline.appendChild(makeBadge("⚠", "Scaduto"));
+    if (node.expired) tdDeadline.appendChild(makeBadge("⚠", "Deadline superata", "#f9a825", "deadline-warning-badge"));
     tr.appendChild(tdDeadline);
+
+    if (state.highlightedDepsIds.has(node.id)) tr.classList.add("row-dep-highlight");
 
     const tdActions = document.createElement("td");
     const editBtn = document.createElement("button");

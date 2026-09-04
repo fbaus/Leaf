@@ -92,9 +92,14 @@ export const SORT_LABELS = {
   deadline: "Deadline",
   execution_date: "Data di esecuzione",
   status: "Status",
+  assegnato: "Assegnato",
 };
 
-const ALL_SORT_CRITERIA = ["padre", "deadline", "execution_date", "status"];
+const ALL_SORT_CRITERIA = ["padre", "deadline", "execution_date", "status", "assegnato"];
+
+function assegnatoSortKey(value) {
+  return value || "￿";
+}
 
 function compareBy(criterion, a, b, tasksById) {
   if (criterion === "padre") {
@@ -110,6 +115,9 @@ function compareBy(criterion, a, b, tasksById) {
     const sa = a.status ? STATUS_ORDER.indexOf(a.status) : STATUS_ORDER.length;
     const sb = b.status ? STATUS_ORDER.indexOf(b.status) : STATUS_ORDER.length;
     return sa - sb;
+  }
+  if (criterion === "assegnato") {
+    return assegnatoSortKey(a.assegnato).localeCompare(assegnatoSortKey(b.assegnato));
   }
   return 0;
 }
@@ -152,6 +160,12 @@ export function extraBadges(node) {
   const frag = document.createDocumentFragment();
   if (node.urgent) frag.appendChild(makeBadge("❗", "Urgente"));
   return frag;
+}
+
+export function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text ?? "";
+  return div.innerHTML;
 }
 
 export function matchesStatusGroup(node, groupKey) {

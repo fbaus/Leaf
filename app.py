@@ -242,7 +242,9 @@ def get_tasks():
     for t in tasks:
         t["dependency_ids"] = deps_by_task.get(t["id"], [])
         t["escalation"] = False
+        t["execution_passed"] = False
         if t["label"] == "APERTO":
+            t["execution_passed"] = bool(t["execution_date"] and t["execution_date"] < today)
             dep_statuses = [status_by_id[d] for d in t["dependency_ids"] if d in status_by_id]
             computed_status, escalated = compute_open_status(
                 t["execution_date"], t["deadline"], t["assegnato"], dep_statuses, today
@@ -364,7 +366,12 @@ def update_task(task_id):
     final_dependency_ids = dependency_ids if dependency_ids is not None else get_dependency_ids(task_id)
 
     try:
-        if label == "APERTO":
+        if task["children_count"] > 0:
+            # un nodo con figli non ha label/status (non è né APERTO né CHIUSO): si
+            # limita ad aggiornare le altre proprietà, con le stesse regole di coerenza
+            # fra le date di un task APERTO
+            enforce_open_task_rules(fields, execution_date, deadline, assegnato, final_dependency_ids)
+        elif label == "APERTO":
             if "status" in fields:
                 return {"error": "Lo status di un task APERTO è calcolato automaticamente"}, 409
             execution_date = enforce_open_task_rules(fields, execution_date, deadline, assegnato, final_dependency_ids)

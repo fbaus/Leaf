@@ -1,6 +1,7 @@
 import { state, rerender } from "./state.js";
 import { byId } from "./utils.js";
 import { addNote, updateNote, fetchNotesSubtree } from "./api.js";
+import { jumpToTree } from "./navigate.js";
 
 function renderComposeBox(sidePanel, nodeId) {
   const box = document.createElement("div");
@@ -39,8 +40,10 @@ function renderNoteBox(sidePanel, note, tasksById) {
   box.className = "note-box";
 
   const nodeLabel = document.createElement("div");
-  nodeLabel.className = "note-node-title";
+  nodeLabel.className = "note-node-title leaf-title-cell";
   nodeLabel.textContent = tasksById[note.task_id]?.title || "—";
+  nodeLabel.title = "Vai nell'albero";
+  nodeLabel.onclick = () => jumpToTree(note.task_id);
   box.appendChild(nodeLabel);
 
   const dateLabel = document.createElement("div");

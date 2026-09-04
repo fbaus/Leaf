@@ -13,6 +13,8 @@ export const state = {
   selectedNoteNodeId: null,
   focusNewNoteInput: false,
   scrollToNodeId: null,
+  highlightedDepsSourceId: null, // id del task il cui bottone "Dipendenze" è attivo
+  highlightedDepsIds: new Set(), // id dei nodi dipendenza da evidenziare in giallo
 };
 
 let renderCallback = () => {};

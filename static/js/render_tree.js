@@ -6,6 +6,7 @@ import {
   STATUS_META,
   makeBadge,
   extraBadges,
+  escapeHtml,
 } from "./utils.js";
 import { deleteTask, setFocus, moveTask } from "./api.js";
 import { openCreateModal, openEditModal } from "./modal.js";
@@ -177,6 +178,58 @@ function showContextMenu(x, y, items) {
   };
 }
 
+// dialog di conferma custom (a differenza di confirm() nativo supporta HTML,
+// serve per mostrare il nome del nodo in grassetto)
+function showConfirmDialog(messageHtml) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "confirm-overlay";
+
+    const box = document.createElement("div");
+    box.className = "confirm-box";
+
+    const msg = document.createElement("div");
+    msg.innerHTML = messageHtml;
+    box.appendChild(msg);
+
+    const actions = document.createElement("div");
+    actions.className = "confirm-actions";
+
+    const settle = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+
+    const okBtn = document.createElement("button");
+    okBtn.textContent = "OK";
+    okBtn.onclick = () => settle(true);
+    const cancelBtn = document.createElement("button");
+    cancelBtn.textContent = "Annulla";
+    cancelBtn.onclick = () => settle(false);
+    actions.appendChild(cancelBtn);
+    actions.appendChild(okBtn);
+    box.appendChild(actions);
+
+    let mouseDownOnBackdrop = false;
+    overlay.addEventListener("mousedown", (e) => {
+      mouseDownOnBackdrop = e.target === overlay;
+    });
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay && mouseDownOnBackdrop) settle(false);
+    });
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  });
+}
+
+async function confirmDeletion(node) {
+  const name = `<strong>${escapeHtml(node.title)}</strong>`;
+  const first = await showConfirmDialog(`Eliminare ${name} e tutte le sotto-attività?`);
+  if (!first) return false;
+  return showConfirmDialog(`Confermi in modo definitivo l'eliminazione di ${name}?`);
+}
+
 function nodeContextMenuItems(node, hasChildren) {
   const items = [];
 
@@ -217,7 +270,7 @@ function nodeContextMenuItems(node, hasChildren) {
   items.push({
     label: "Elimina",
     onClick: async () => {
-      const ok = confirm("Eliminare questo task e tutte le sotto-attività?");
+      const ok = await confirmDeletion(node);
       if (!ok) return;
       try {
         await deleteTask(node.id);
@@ -241,6 +294,7 @@ function renderNode(node, searchText) {
   // il rosso (scaduto) prevale sul giallo (escalation) se coincidono
   if (node.expired) row.classList.add("row-expired");
   else if (node.escalation) row.classList.add("row-escalation");
+  if (state.highlightedDepsIds.has(node.id)) row.classList.add("row-dep-highlight");
   attachDragHandlers(row, node);
 
   const hasChildren = node.children.length > 0;
@@ -278,6 +332,7 @@ function renderNode(node, searchText) {
   title.className = "node-title";
   title.title = "Clic sinistro: leggi le note. Clic destro: azioni sul nodo.";
   if (state.selectedNoteNodeId === node.id) title.classList.add("selected-node");
+  title.classList.toggle("urgent-node", !!node.urgent);
   title.textContent = node.title;
   title.onclick = () => {
     state.selectedNoteNodeId = node.id;
