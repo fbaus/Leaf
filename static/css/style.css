@@ -92,6 +92,7 @@ body:not([data-view="albero"]) .tree-only {
   min-width: 0;
   height: 100%;
   overflow-y: auto;
+  position: relative;
 }
 
 #side-panel {
@@ -341,6 +342,121 @@ th, td {
   display: block;
   font-size: 13px;
   margin: 4px 0;
+}
+
+/* ---------- calendario (overlay sopra la tabella FOGLIE) ---------- */
+
+.calendar-overlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border-left: 1px solid #ccc;
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.15);
+}
+
+.calendar-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  width: 10px;
+  cursor: col-resize;
+  z-index: 3;
+}
+
+.calendar-toolbar {
+  flex-shrink: 0;
+  height: 30px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  background: white;
+  border-bottom: 1px solid #ddd;
+}
+
+.calendar-scroll {
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none; /* Firefox: nasconde la scrollbar nativa, resta solo quella "proxy" sempre visibile */
+}
+
+.calendar-scroll::-webkit-scrollbar {
+  display: none; /* Chrome/Edge/Safari */
+}
+
+.calendar-inner {
+  position: relative;
+}
+
+.calendar-header-row {
+  border-bottom: 1px solid #ddd;
+  white-space: nowrap;
+}
+
+.calendar-bucket-header {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 10px;
+  line-height: 1.2;
+  box-sizing: border-box;
+  white-space: normal;
+  vertical-align: top;
+}
+
+.calendar-bucket-header.weekend {
+  background: #e4e4e4;
+}
+
+.calendar-weekend-band {
+  position: absolute;
+  top: 0;
+  background: #eeeeee;
+  pointer-events: none;
+}
+
+.calendar-grid-line {
+  position: absolute;
+  top: 0;
+  border-left: 1px solid #ddd;
+  pointer-events: none;
+}
+
+.calendar-today-line {
+  position: absolute;
+  top: 0;
+  border-left: 3px solid #00bcd4;
+  pointer-events: none;
+}
+
+.calendar-bar {
+  position: absolute;
+  border-radius: 8px;
+  opacity: 0.85;
+}
+
+.calendar-scrollbar-proxy {
+  flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  height: 14px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: white;
+  border-top: 1px solid #ddd;
+}
+
+.calendar-scrollbar-spacer {
+  height: 1px;
 }
 
 /* ---------- note ---------- */

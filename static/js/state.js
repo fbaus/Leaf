@@ -15,6 +15,9 @@ export const state = {
   scrollToNodeId: null,
   highlightedDepsSourceId: null, // id del task il cui bottone "Dipendenze" è attivo
   highlightedDepsIds: new Set(), // id dei nodi dipendenza da evidenziare in giallo
+  calendarOpen: false,
+  calendarGranularity: "giorno", // "giorno" | "settimana" | "mese" | "anno"
+  calendarLeftOffset: null, // px da sinistra di #main-panel al bordo sinistro del calendario; null = default
 };
 
 let renderCallback = () => {};

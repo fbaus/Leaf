@@ -17,6 +17,7 @@ import { setFocus } from "./api.js";
 import { openEditModal } from "./modal.js";
 import { jumpToTree } from "./navigate.js";
 import { toggleDependencyHighlight } from "./deps_highlight.js";
+import { renderCalendarOverlay } from "./render_calendar.js";
 
 function getRootNodes(tasks) {
   return tasks.filter((t) => t.parent_id === null);
@@ -40,6 +41,17 @@ function renderFilterBar(mainPanel) {
     };
     bar.appendChild(btn);
   });
+
+  const calBtn = document.createElement("button");
+  calBtn.className = "filter-group-btn";
+  calBtn.classList.toggle("active", state.calendarOpen);
+  calBtn.textContent = "📅 Calendario";
+  calBtn.onclick = () => {
+    state.calendarOpen = !state.calendarOpen;
+    rerender();
+  };
+  bar.appendChild(calBtn);
+
   mainPanel.appendChild(bar);
 }
 
@@ -91,6 +103,7 @@ function renderTable(mainPanel, tasksById) {
   const tbody = document.createElement("tbody");
   leaves.forEach((node) => {
     const tr = document.createElement("tr");
+    tr.dataset.taskId = node.id;
 
     const tdParent = document.createElement("td");
     tdParent.textContent = rootTitle(node, tasksById);
@@ -174,6 +187,7 @@ function renderTable(mainPanel, tasksById) {
   });
   table.appendChild(tbody);
   mainPanel.appendChild(table);
+  return leaves;
 }
 
 function renderChecklist(sidePanel) {
@@ -208,6 +222,7 @@ function renderChecklist(sidePanel) {
 export function renderLeaves(mainPanel, sidePanel) {
   const tasksById = byId(state.tasks);
   renderFilterBar(mainPanel);
-  renderTable(mainPanel, tasksById);
+  const leaves = renderTable(mainPanel, tasksById);
+  if (state.calendarOpen) renderCalendarOverlay(mainPanel, leaves);
   renderChecklist(sidePanel);
 }
