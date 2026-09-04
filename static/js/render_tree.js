@@ -7,7 +7,7 @@ import {
   makeBadge,
   extraBadges,
 } from "./utils.js";
-import { deleteTask, setFocus } from "./api.js";
+import { deleteTask, setFocus, moveTask } from "./api.js";
 import { openCreateModal, openEditModal } from "./modal.js";
 
 function subtreeMatches(node, searchText) {
@@ -32,6 +32,69 @@ function collectExpandableIds(node) {
     ids.push(...collectExpandableIds(child));
   });
   return ids;
+}
+
+// ---------------------------------------------------------------------------
+// Drag & drop: sposta un nodo (e il suo sottoalbero) su un padre diverso
+// ---------------------------------------------------------------------------
+
+function collectDescendantIds(node) {
+  const ids = [];
+  node.children.forEach((child) => {
+    ids.push(child.id, ...collectDescendantIds(child));
+  });
+  return ids;
+}
+
+let draggedNode = null;
+let draggedDescendantIds = new Set();
+
+async function performMove(newParentId) {
+  if (draggedNode === null) return;
+  try {
+    await moveTask(draggedNode.id, newParentId);
+    await reload();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function attachDragHandlers(row, node) {
+  row.draggable = true;
+
+  row.addEventListener("dragstart", (e) => {
+    draggedNode = node;
+    draggedDescendantIds = new Set(collectDescendantIds(node));
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(node.id));
+    row.classList.add("dragging");
+  });
+
+  row.addEventListener("dragend", () => {
+    row.classList.remove("dragging");
+    draggedNode = null;
+    draggedDescendantIds = new Set();
+  });
+
+  row.addEventListener("dragover", (e) => {
+    if (draggedNode === null) return;
+    if (draggedNode.id === node.id || draggedDescendantIds.has(node.id)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    row.classList.add("drop-target");
+  });
+
+  row.addEventListener("dragleave", () => {
+    row.classList.remove("drop-target");
+  });
+
+  row.addEventListener("drop", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    row.classList.remove("drop-target");
+    if (draggedNode === null || draggedNode.id === node.id) return;
+    performMove(node.id);
+  });
 }
 
 function branchToggleButton(node) {
@@ -178,6 +241,7 @@ function renderNode(node, searchText) {
   // il rosso (scaduto) prevale sul giallo (escalation) se coincidono
   if (node.expired) row.classList.add("row-expired");
   else if (node.escalation) row.classList.add("row-escalation");
+  attachDragHandlers(row, node);
 
   const hasChildren = node.children.length > 0;
   let childrenUl = null;
@@ -242,7 +306,32 @@ function renderNode(node, searchText) {
   return li;
 }
 
+// il container (#main-panel) è un elemento persistente riusato a ogni render:
+// i listener vanno agganciati una sola volta, altrimenti si accumulano
+function ensureRootDropZone(container) {
+  if (container.dataset.dropZoneReady) return;
+  container.dataset.dropZoneReady = "true";
+
+  container.addEventListener("dragover", (e) => {
+    if (e.target !== container || draggedNode === null) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    container.classList.add("drop-target-root");
+  });
+  container.addEventListener("dragleave", (e) => {
+    if (e.target === container) container.classList.remove("drop-target-root");
+  });
+  container.addEventListener("drop", (e) => {
+    if (e.target !== container || draggedNode === null) return;
+    e.preventDefault();
+    container.classList.remove("drop-target-root");
+    performMove(null);
+  });
+}
+
 export function renderTree(container) {
+  ensureRootDropZone(container);
+
   const searchText = state.searchText.trim();
   const tree = buildTree(state.tasks);
 

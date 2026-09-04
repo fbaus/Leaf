@@ -152,6 +152,23 @@ li {
   background: #FFAFCF;
 }
 
+.tree-row[draggable="true"] {
+  cursor: grab;
+}
+
+.tree-row.dragging {
+  opacity: 0.4;
+}
+
+.tree-row.drop-target {
+  outline: 2px dashed #1565c0;
+  background: #e3f2fd;
+}
+
+#main-panel.drop-target-root {
+  outline: 2px dashed #1565c0;
+}
+
 .toggle-btn {
   border: none;
   background: none;

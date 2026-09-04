@@ -429,6 +429,59 @@ def set_focus(task_id):
     return {"status": "ok"}
 
 
+@app.route("/tasks/<int:task_id>/parent", methods=["PATCH"])
+def move_task(task_id):
+    task = get_task(task_id)
+    if task is None:
+        return {"error": "Task non trovato"}, 404
+
+    data = request.get_json() or {}
+    new_parent_id = data.get("parent_id")
+
+    new_parent = None
+    if new_parent_id is not None:
+        new_parent = get_task(new_parent_id)
+        if new_parent is None:
+            return {"error": "Nodo padre non trovato"}, 404
+        if new_parent["children_count"] == 0 and new_parent["label"] == "CHIUSO":
+            return {"error": "Non è possibile spostare un nodo sotto questa foglia (chiusa)"}, 409
+
+        # il nuovo padre non può essere il nodo stesso né un suo discendente (ciclo)
+        subtree_ids = {r["id"] for r in query_db(
+            """
+            WITH RECURSIVE subtree(id) AS (
+                SELECT id FROM tasks WHERE id = ?
+                UNION ALL
+                SELECT t.id FROM tasks t JOIN subtree s ON t.parent_id = s.id
+            )
+            SELECT id FROM subtree
+            """,
+            [task_id],
+        )}
+        if new_parent_id in subtree_ids:
+            return {"error": "Non puoi spostare un nodo dentro se stesso o un suo discendente"}, 409
+
+    if task["parent_id"] == new_parent_id:
+        return {"status": "ok"}
+
+    statements = [("UPDATE tasks SET parent_id = ? WHERE id = ?", (new_parent_id, task_id))]
+
+    # se il nuovo padre era una foglia, diventa un ramo: stessa transizione già
+    # usata in create_task quando una foglia guadagna il primo figlio
+    if new_parent is not None and new_parent["children_count"] == 0:
+        statements.append((
+            "UPDATE tasks SET status = NULL, focus = 0, label = NULL, assegnato = NULL WHERE id = ?",
+            (new_parent_id,),
+        ))
+        statements.append((
+            "DELETE FROM task_dependencies WHERE task_id = ? OR depends_on_id = ?",
+            (new_parent_id, new_parent_id),
+        ))
+
+    execute_transaction(statements)
+    return {"status": "ok"}
+
+
 @app.route("/tasks/<int:task_id>", methods=["DELETE"])
 def delete_task(task_id):
     # ON DELETE CASCADE elimina automaticamente sotto-albero, note e dipendenze collegate

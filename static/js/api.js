@@ -38,6 +38,10 @@ export function setFocus(id, focus) {
   return postJson(`/tasks/${id}/focus`, "PATCH", { focus });
 }
 
+export function moveTask(id, parentId) {
+  return postJson(`/tasks/${id}/parent`, "PATCH", { parent_id: parentId });
+}
+
 export function deleteTask(id) {
   return fetch(`/tasks/${id}`, { method: "DELETE" }).then(handle);
 }
