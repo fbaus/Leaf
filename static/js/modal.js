@@ -133,33 +133,73 @@ function updateLabelVisibility(node) {
 fieldLabel.addEventListener("change", () => updateLabelVisibility(null));
 
 // ---------------------------------------------------------------------------
-// Selettore dipendenze (ad albero, solo foglie selezionabili)
+// Selettore dipendenze (ad albero, foglie e rami selezionabili, espandibile/collassabile)
 // ---------------------------------------------------------------------------
+
+function getAncestorIds(nodeId) {
+  const ids = [];
+  let current = state.tasks.find((t) => t.id === nodeId);
+  while (current && current.parent_id !== null) {
+    ids.push(current.parent_id);
+    current = state.tasks.find((t) => t.id === current.parent_id);
+  }
+  return ids;
+}
+
+function collectAllBranchIds(nodes, ids = new Set()) {
+  nodes.forEach((n) => {
+    if (n.children.length > 0) {
+      ids.add(n.id);
+      collectAllBranchIds(n.children, ids);
+    }
+  });
+  return ids;
+}
+
+let currentPickerExcludedIds = new Set();
+let pickerExpandedIds = new Set();
 
 function renderPickerNode(node, excludedIds, container) {
   const li = document.createElement("li");
+  const row = document.createElement("div");
+  row.className = "picker-row";
 
-  if (isLeaf(node)) {
-    const label = document.createElement("label");
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.disabled = excludedIds.has(node.id);
-    checkbox.checked = selectedDependencyIds.has(node.id);
-    checkbox.onchange = () => {
-      if (checkbox.checked) selectedDependencyIds.add(node.id);
-      else selectedDependencyIds.delete(node.id);
+  const hasChildren = node.children.length > 0;
+  if (hasChildren) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "picker-toggle-btn";
+    const expanded = pickerExpandedIds.has(node.id);
+    toggle.textContent = expanded ? "▼" : "▶";
+    toggle.onclick = () => {
+      if (pickerExpandedIds.has(node.id)) pickerExpandedIds.delete(node.id);
+      else pickerExpandedIds.add(node.id);
+      renderPickerTree();
     };
-    label.appendChild(checkbox);
-    label.appendChild(document.createTextNode(" " + node.title));
-    li.appendChild(label);
+    row.appendChild(toggle);
   } else {
-    const span = document.createElement("span");
-    span.className = "picker-branch";
-    span.textContent = node.title;
-    li.appendChild(span);
+    const spacer = document.createElement("span");
+    spacer.className = "picker-toggle-spacer";
+    row.appendChild(spacer);
   }
 
-  if (node.children.length > 0) {
+  const label = document.createElement("label");
+  if (hasChildren) label.classList.add("picker-branch-label");
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.disabled = excludedIds.has(node.id);
+  checkbox.checked = selectedDependencyIds.has(node.id);
+  checkbox.onchange = () => {
+    if (checkbox.checked) selectedDependencyIds.add(node.id);
+    else selectedDependencyIds.delete(node.id);
+  };
+  label.appendChild(checkbox);
+  label.appendChild(document.createTextNode(" " + node.title));
+  row.appendChild(label);
+
+  li.appendChild(row);
+
+  if (hasChildren && pickerExpandedIds.has(node.id)) {
     const ul = document.createElement("ul");
     node.children.forEach((c) => renderPickerNode(c, excludedIds, ul));
     li.appendChild(ul);
@@ -167,15 +207,22 @@ function renderPickerNode(node, excludedIds, container) {
   container.appendChild(li);
 }
 
-function openDependencyPicker() {
-  const excludedIds = new Set(editingId === null ? [] : [editingId, ...getDescendantIds(editingId)]);
-
+function renderPickerTree() {
   pickerTreeEl.innerHTML = "";
   const ul = document.createElement("ul");
   ul.className = "picker-tree-root";
-  buildTree(state.tasks).forEach((n) => renderPickerNode(n, excludedIds, ul));
+  buildTree(state.tasks).forEach((n) => renderPickerNode(n, currentPickerExcludedIds, ul));
   pickerTreeEl.appendChild(ul);
+}
 
+function openDependencyPicker() {
+  currentPickerExcludedIds = new Set(
+    editingId === null ? [] : [editingId, ...getDescendantIds(editingId), ...getAncestorIds(editingId)]
+  );
+  // tutto espanso di default (stessa visibilità di prima), collassabile a piacere
+  pickerExpandedIds = collectAllBranchIds(buildTree(state.tasks));
+
+  renderPickerTree();
   pickerOverlay.classList.remove("hidden");
 }
 

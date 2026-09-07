@@ -139,6 +139,32 @@ def compute_open_status(execution_date, deadline, assegnato, dep_statuses, today
     return STATUS_ATTIVO, True
 
 
+def resolve_dependency_status(dep_id, tasks_by_id, children_by_parent, cache):
+    """Status 'effettivo' di una dipendenza ai fini della risoluzione: per una foglia è il
+    suo status reale; per un ramo si calcola ricorsivamente dai figli (foglie o rami), con
+    la stessa regola: risolto (COMPLETATO/INTERROTTO, quarantena esclusa) solo se TUTTI i
+    figli sono risolti, COMPLETATO se almeno uno di essi lo è davvero. Nessun controllo
+    cicli necessario: si cammina solo lungo parent_id, che è sempre un albero."""
+    if dep_id in cache:
+        return cache[dep_id]
+    task = tasks_by_id[dep_id]
+    if task["children_count"] == 0:
+        return task["status"]
+    child_statuses = [
+        resolve_dependency_status(c["id"], tasks_by_id, children_by_parent, cache)
+        for c in children_by_parent.get(dep_id, [])
+    ]
+    resolved_all = bool(child_statuses) and all(s in (STATUS_COMPLETATO, STATUS_INTERROTTO) for s in child_statuses)
+    if not resolved_all:
+        result = None
+    elif any(s == STATUS_COMPLETATO for s in child_statuses):
+        result = STATUS_COMPLETATO
+    else:
+        result = STATUS_INTERROTTO
+    cache[dep_id] = result
+    return result
+
+
 def has_cycle_from(start_id, graph):
     visiting, visited = set(), set()
 
@@ -178,6 +204,23 @@ def validate_dependencies(task_id, dependency_ids):
 
     if task_id is None:
         return  # nodo nuovo: non può ancora far parte di un ciclo
+
+    ancestor_ids = {
+        r["id"] for r in query_db(
+            """
+            WITH RECURSIVE ancestors(id, parent_id) AS (
+                SELECT id, parent_id FROM tasks WHERE id = ?
+                UNION ALL
+                SELECT t.id, t.parent_id FROM tasks t JOIN ancestors a ON t.id = a.parent_id
+            )
+            SELECT id FROM ancestors
+            """,
+            [task_id],
+        )
+    } - {task_id}
+    bad_ancestors = set(dependency_ids) & ancestor_ids
+    if bad_ancestors:
+        raise ValueError("Non puoi dipendere da un nodo antenato")
 
     rows = query_db("SELECT task_id, depends_on_id FROM task_dependencies WHERE task_id != ?", [task_id])
     graph = {}
@@ -237,7 +280,12 @@ def get_tasks():
     for r in query_db("SELECT task_id, depends_on_id FROM task_dependencies"):
         deps_by_task.setdefault(r["task_id"], []).append(r["depends_on_id"])
 
-    status_by_id = {t["id"]: t["status"] for t in tasks}
+    tasks_by_id = {t["id"]: t for t in tasks}
+    children_by_parent = {}
+    for t in tasks:
+        if t["parent_id"] is not None:
+            children_by_parent.setdefault(t["parent_id"], []).append(t)
+    resolution_cache = {}
     today = date.today().isoformat()
 
     for t in tasks:
@@ -246,7 +294,10 @@ def get_tasks():
         t["execution_passed"] = False
         if t["label"] == "APERTO":
             t["execution_passed"] = bool(t["execution_date"] and t["execution_date"] < today)
-            dep_statuses = [status_by_id[d] for d in t["dependency_ids"] if d in status_by_id]
+            dep_statuses = [
+                resolve_dependency_status(d, tasks_by_id, children_by_parent, resolution_cache)
+                for d in t["dependency_ids"] if d in tasks_by_id
+            ]
             computed_status, escalated = compute_open_status(
                 t["execution_date"], t["deadline"], t["assegnato"], dep_statuses, today
             )
