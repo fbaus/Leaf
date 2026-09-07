@@ -298,7 +298,7 @@ export function renderCalendarOverlay(mainPanel, leaves) {
   // il bordo sinistro del calendario è trascinabile fra la fine della colonna Titolo
   // e l'inizio della colonna Data di esecuzione
   const minLeft = table.tHead.rows[0].children[1].getBoundingClientRect().right - mainPanelLeft;
-  const maxLeft = table.tHead.rows[0].children[7].getBoundingClientRect().left - mainPanelLeft;
+  const maxLeft = table.tHead.rows[0].children[6].getBoundingClientRect().left - mainPanelLeft;
   const defaultLeft = table.tHead.rows[0].children[2].getBoundingClientRect().right - mainPanelLeft;
   const colOffset =
     state.calendarLeftOffset === null
@@ -426,8 +426,8 @@ export function renderCalendarOverlay(mainPanel, leaves) {
     bar.style.background = meta ? meta.color : "#999";
     bar.style.left = `${range.left + 1}px`;
     bar.style.width = `${Math.max(range.width - 2, 4)}px`;
-    bar.style.top = `${top + height * 0.2}px`;
-    bar.style.height = `${height * 0.6}px`;
+    bar.style.top = `${top + height * 0.3}px`;
+    bar.style.height = `${height * 0.4}px`;
     bar.title = node.title;
 
     if (DRAGGABLE_GRANULARITIES.has(granularity)) {

@@ -18,6 +18,7 @@ import { openEditModal } from "./modal.js";
 import { jumpToTree } from "./navigate.js";
 import { toggleDependencyHighlight } from "./deps_highlight.js";
 import { renderCalendarOverlay } from "./render_calendar.js";
+import { showContextMenu } from "./context_menu.js";
 
 function getRootNodes(tasks) {
   return tasks.filter((t) => t.parent_id === null);
@@ -56,8 +57,8 @@ function renderFilterBar(mainPanel) {
 }
 
 // percentuali (sommano a 100):
-// progetto, titolo, status, focus, descrizione, assegnato, dipendenze, esecuzione, deadline, azioni
-const COLUMN_WIDTHS = [13, 16, 6, 5, 24, 8, 6, 9, 9, 4];
+// progetto, titolo, status, assegnato, descrizione, dipendenze, esecuzione, deadline
+const COLUMN_WIDTHS = [13, 16, 6, 8, 31, 6, 10, 10];
 
 function renderColgroup(table) {
   const colgroup = document.createElement("colgroup");
@@ -88,15 +89,13 @@ function renderTable(mainPanel, tasksById) {
   headRow.appendChild(sortableHeader(SORT_LABELS.padre, "padre", state.leafFilters.sortBy, onSort));
   headRow.appendChild(document.createElement("th")).textContent = "Titolo";
   headRow.appendChild(sortableHeader(SORT_LABELS.status, "status", state.leafFilters.sortBy, onSort));
-  headRow.appendChild(document.createElement("th")).textContent = "Focus";
-  headRow.appendChild(document.createElement("th")).textContent = "Descrizione";
   headRow.appendChild(sortableHeader(SORT_LABELS.assegnato, "assegnato", state.leafFilters.sortBy, onSort));
+  headRow.appendChild(document.createElement("th")).textContent = "Descrizione";
   headRow.appendChild(document.createElement("th")); // Dipendenze: nessun header, come le azioni
   headRow.appendChild(
     sortableHeader(SORT_LABELS.execution_date, "execution_date", state.leafFilters.sortBy, onSort)
   );
   headRow.appendChild(sortableHeader(SORT_LABELS.deadline, "deadline", state.leafFilters.sortBy, onSort));
-  headRow.appendChild(document.createElement("th"));
   thead.appendChild(headRow);
   table.appendChild(thead);
 
@@ -104,6 +103,26 @@ function renderTable(mainPanel, tasksById) {
   leaves.forEach((node) => {
     const tr = document.createElement("tr");
     tr.dataset.taskId = node.id;
+    tr.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      showContextMenu(e.clientX, e.clientY, [
+        {
+          label: node.focus ? "Disattiva focus" : "Attiva focus",
+          onClick: async () => {
+            try {
+              await setFocus(node.id, !node.focus);
+              await reload();
+            } catch (err) {
+              alert(err.message);
+            }
+          },
+        },
+        {
+          label: "Configurazione",
+          onClick: () => openEditModal(node),
+        },
+      ]);
+    });
 
     const tdParent = document.createElement("td");
     tdParent.textContent = rootTitle(node, tasksById);
@@ -127,28 +146,13 @@ function renderTable(mainPanel, tasksById) {
     }
     tr.appendChild(tdStatus);
 
-    const tdFocus = document.createElement("td");
-    const focusBtn = document.createElement("button");
-    focusBtn.textContent = node.focus ? "🎯" : "○";
-    focusBtn.title = node.focus ? "Disattiva focus" : "Attiva focus";
-    focusBtn.onclick = async () => {
-      try {
-        await setFocus(node.id, !node.focus);
-        await reload();
-      } catch (err) {
-        alert(err.message);
-      }
-    };
-    tdFocus.appendChild(focusBtn);
-    tr.appendChild(tdFocus);
+    const tdAssegnato = document.createElement("td");
+    tdAssegnato.textContent = node.assegnato || "—";
+    tr.appendChild(tdAssegnato);
 
     const tdDesc = document.createElement("td");
     tdDesc.textContent = truncate(node.description, 60);
     tr.appendChild(tdDesc);
-
-    const tdAssegnato = document.createElement("td");
-    tdAssegnato.textContent = node.assegnato || "—";
-    tr.appendChild(tdAssegnato);
 
     const tdDeps = document.createElement("td");
     const depCount = (node.dependency_ids || []).length;
@@ -175,13 +179,6 @@ function renderTable(mainPanel, tasksById) {
     tr.appendChild(tdDeadline);
 
     if (state.highlightedDepsIds.has(node.id)) tr.classList.add("row-dep-highlight");
-
-    const tdActions = document.createElement("td");
-    const editBtn = document.createElement("button");
-    editBtn.textContent = "⚙";
-    editBtn.onclick = () => openEditModal(node);
-    tdActions.appendChild(editBtn);
-    tr.appendChild(tdActions);
 
     tbody.appendChild(tr);
   });
