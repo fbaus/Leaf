@@ -49,41 +49,52 @@
         <label>Descrizione
           <textarea id="field-description" maxlength="300"></textarea>
         </label>
-        <div id="field-label-wrapper">
-          <label>Stato del task
-            <select id="field-label">
-              <option value="APERTO">Aperto (gestito automaticamente)</option>
-              <option value="CHIUSO">Chiuso</option>
-            </select>
+        <div class="field-row">
+          <div id="field-label-wrapper">
+            <label>Stato del task
+              <select id="field-label">
+                <option value="APERTO">Aperto (gestito automaticamente)</option>
+                <option value="CHIUSO">Chiuso</option>
+              </select>
+            </label>
+          </div>
+          <div id="field-status-open-wrapper">
+            <label>Status (calcolato automaticamente)
+              <div id="field-status-computed" class="computed-status"></div>
+            </label>
+          </div>
+          <div id="field-status-closed-wrapper">
+            <label>Status
+              <select id="field-status"></select>
+            </label>
+          </div>
+        </div>
+        <div class="field-row">
+          <label>Data esecuzione
+            <input id="field-execution-date" type="date">
+          </label>
+          <label id="field-deadline-label">Deadline
+            <input id="field-deadline" type="date">
           </label>
         </div>
-        <div id="field-status-open-wrapper">
-          <label>Status (calcolato automaticamente)
-            <div id="field-status-computed" class="computed-status"></div>
+        <div class="field-row">
+          <label>Assegnato
+            <input id="field-assegnato" maxlength="20" placeholder="richiede EX e DL">
+          </label>
+          <div id="field-dependencies-wrapper">
+            <label>Dipendenze</label>
+            <div id="dependencies-summary">Nessuna</div>
+            <button type="button" id="dependencies-picker-btn">Scegli dipendenze...</button>
+          </div>
+        </div>
+        <div class="checkbox-row">
+          <label class="checkbox-label" id="field-focus-wrapper">
+            <input id="field-focus" type="checkbox"> Focus
+          </label>
+          <label class="checkbox-label">
+            <input id="field-urgent" type="checkbox"> Urgente
           </label>
         </div>
-        <div id="field-status-closed-wrapper">
-          <label>Status
-            <select id="field-status"></select>
-          </label>
-        </div>
-        <label id="field-deadline-label">Deadline
-          <input id="field-deadline" type="date">
-        </label>
-        <label>Data esecuzione
-          <input id="field-execution-date" type="date">
-        </label>
-        <label>Assegnato
-          <input id="field-assegnato" maxlength="20" placeholder="richiede EX e DL">
-        </label>
-        <div id="field-dependencies-wrapper">
-          <label>Dipendenze</label>
-          <div id="dependencies-summary">Nessuna</div>
-          <button type="button" id="dependencies-picker-btn">Scegli dipendenze...</button>
-        </div>
-        <label class="checkbox-label">
-          <input id="field-urgent" type="checkbox"> Urgente
-        </label>
         <div class="modal-actions">
           <button type="submit" id="modal-submit">Salva</button>
           <button type="button" id="modal-cancel">Annulla</button>

@@ -730,18 +730,19 @@ th, td {
   font-weight: bold;
 }
 
-#field-dependencies-wrapper {
-  margin-bottom: 10px;
-  font-size: 13px;
-}
-
 #dependencies-summary {
+  display: inline-block;
+  max-width: 22em;
   padding: 6px;
   margin: 4px 0 6px;
   border: 1px solid #eee;
   border-radius: 4px;
   background: #f9f9f9;
   font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 
 /* ---------- selettore dipendenze ---------- */
@@ -849,8 +850,8 @@ th, td {
 #modal-box {
   background: white;
   border-radius: 8px;
-  padding: 20px;
-  width: 620px;
+  padding: 24px;
+  width: 820px;
   max-width: 90vw;
   max-height: 90vh;
   overflow-y: auto;
@@ -858,33 +859,79 @@ th, td {
 
 #node-form label {
   display: block;
-  margin-bottom: 10px;
+  margin-bottom: 14px;
   font-size: 13px;
 }
 
 #node-form input,
 #node-form textarea,
 #node-form select {
-  width: 100%;
-  padding: 6px;
+  padding: 6px 8px;
   margin-top: 4px;
   border: 1px solid #ccc;
   border-radius: 4px;
   font: inherit;
+  box-sizing: border-box;
+}
+
+#field-title,
+#field-description {
+  width: 100%;
 }
 
 #node-form textarea {
   min-height: 60px;
 }
 
+/* select e date: larghezza intrinseca (si adattano al testo/valore che contengono),
+   non estesi a tutta la finestra */
+#node-form select,
+#node-form input[type="date"] {
+  width: auto;
+}
+
+#field-assegnato {
+  width: 14em;
+}
+
+/* righe di campi affiancati: ogni campo resta largo quanto il suo contenuto, non si
+   allunga per riempire lo spazio residuo della riga */
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.field-row > * {
+  margin-bottom: 14px;
+}
+
+#field-dependencies-wrapper {
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+
+.checkbox-row {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 14px;
+}
+
 .checkbox-label {
   display: flex !important;
   align-items: center;
   gap: 6px;
+  margin-bottom: 0 !important;
 }
 
 .checkbox-label input {
   width: auto !important;
+}
+
+.checkbox-label:has(input:disabled) {
+  color: #aaa;
+  cursor: default;
 }
 
 .modal-actions {

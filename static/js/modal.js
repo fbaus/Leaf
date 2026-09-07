@@ -1,6 +1,6 @@
-import { createTask, updateTask } from "./api.js";
+import { createTask, updateTask, setFocus } from "./api.js";
 import { STATUS_META, CLOSED_STATUSES, isLeaf, buildTree } from "./utils.js";
-import { state } from "./state.js";
+import { state, reload } from "./state.js";
 import { renderChecklist } from "./checklist.js";
 
 const overlay = document.getElementById("modal-overlay");
@@ -20,6 +20,8 @@ const fieldStatus = document.getElementById("field-status");
 const fieldAssegnato = document.getElementById("field-assegnato");
 const dependenciesSummary = document.getElementById("dependencies-summary");
 const dependenciesPickerBtn = document.getElementById("dependencies-picker-btn");
+const fieldFocusWrapper = document.getElementById("field-focus-wrapper");
+const fieldFocus = document.getElementById("field-focus");
 const fieldUrgent = document.getElementById("field-urgent");
 const cancelBtn = document.getElementById("modal-cancel");
 const modalSubmit = document.getElementById("modal-submit");
@@ -104,6 +106,20 @@ fieldDeadline.addEventListener("change", () => {
 fieldExecutionDate.addEventListener("change", applyOpenTaskRules);
 
 fieldAssegnato.addEventListener("input", applyOpenTaskRules);
+
+// il focus ha effetto immediato (come dal menu contestuale dell'albero), non è
+// parte del payload salvato con "Salva": un solo task alla volta può averlo
+fieldFocus.addEventListener("change", async () => {
+  if (editingId === null) return;
+  const desired = fieldFocus.checked;
+  try {
+    await setFocus(editingId, desired);
+    await reload();
+  } catch (err) {
+    fieldFocus.checked = !desired;
+    alert(err.message);
+  }
+});
 
 function updateLabelVisibility(node) {
   const label = fieldLabel.value;
@@ -270,6 +286,7 @@ export function openCreateModal(parentId) {
   updateDependenciesSummary();
   updateLabelVisibility(null);
   checklistWrapper.classList.add("hidden"); // serve un nodo già esistente
+  fieldFocusWrapper.classList.add("hidden"); // idem: il focus si attiva solo su un nodo esistente
 
   overlay.classList.remove("hidden");
   fieldTitle.focus();
@@ -286,6 +303,10 @@ function applyNodeTypeFields(node) {
   fieldLabel.value = leaf ? node.label || "APERTO" : "APERTO";
   fieldStatus.value = leaf && node.label === "CHIUSO" ? node.status || "" : "";
   updateLabelVisibility(node);
+
+  // il focus è consentito solo su una foglia APERTA, come nel menu contestuale dell'albero
+  fieldFocus.checked = !!node.focus;
+  fieldFocus.disabled = !leaf || node.label === "CHIUSO";
 }
 
 // la checklist esiste solo sulle foglie: se una trasformazione in-modale fa
@@ -319,6 +340,7 @@ export function openEditModal(node) {
   fieldExecutionDate.value = node.execution_date || "";
   fieldUrgent.checked = !!node.urgent;
   updateDependenciesSummary();
+  fieldFocusWrapper.classList.remove("hidden");
 
   applyNodeTypeFields(node);
   updateChecklistVisibility(node);
