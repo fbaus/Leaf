@@ -50,6 +50,14 @@ def validate_title(title):
     return title
 
 
+def validate_checklist_description(description):
+    if not description or not description.strip():
+        raise ValueError("Descrizione mancante")
+    if len(description) > 60:
+        raise ValueError("Descrizione troppo lunga (max 60 caratteri)")
+    return description
+
+
 def validate_description(description):
     if description is None:
         return None
@@ -728,6 +736,151 @@ def preview_note_path():
     if os.path.splitext(path)[1].lower() not in IMAGE_EXTENSIONS:
         return {"error": "Non è un'immagine"}, 400
     return send_file(path)
+
+
+# ---------------------------------------------------------------------------
+# Checklist (righe informali di pianificazione dentro un nodo, senza status:
+# diventano task veri solo quando vengono trasformate in nodo figlio)
+# ---------------------------------------------------------------------------
+
+@app.route("/tasks/<int:task_id>/checklist", methods=["GET"])
+def get_checklist(task_id):
+    rows = query_db("SELECT * FROM checklist_items WHERE task_id = ?", [task_id])
+    return jsonify(rows)
+
+
+@app.route("/tasks/<int:task_id>/checklist", methods=["POST"])
+def add_checklist_item(task_id):
+    task = get_task(task_id)
+    if task is None:
+        return {"error": "Task non trovato"}, 404
+    if task["children_count"] > 0:
+        return {"error": "La checklist è disponibile solo sulle foglie"}, 409
+
+    data = request.get_json() or {}
+    try:
+        description = validate_checklist_description(data.get("description"))
+        assegnato = validate_assegnato(data.get("assegnato"))
+        execution_date = validate_date(data.get("execution_date"), "Data di esecuzione")
+        deadline = validate_date(data.get("deadline"), "Deadline")
+        if execution_date and deadline and deadline <= execution_date:
+            raise ValueError("La deadline deve essere successiva alla data di esecuzione")
+    except ValueError as e:
+        return {"error": str(e)}, 400
+
+    new_id = execute_db(
+        """
+        INSERT INTO checklist_items (task_id, description, assegnato, execution_date, deadline)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (task_id, description, assegnato, execution_date, deadline),
+    )
+    item = query_one("SELECT * FROM checklist_items WHERE id = ?", [new_id])
+    return jsonify(item), 201
+
+
+@app.route("/checklist/<int:item_id>", methods=["PUT"])
+def update_checklist_item(item_id):
+    item = query_one("SELECT * FROM checklist_items WHERE id = ?", [item_id])
+    if item is None:
+        return {"error": "Voce non trovata"}, 404
+
+    data = request.get_json() or {}
+    fields = {}
+    try:
+        if "description" in data:
+            fields["description"] = validate_checklist_description(data["description"])
+        if "assegnato" in data:
+            fields["assegnato"] = validate_assegnato(data["assegnato"])
+        if "execution_date" in data:
+            fields["execution_date"] = validate_date(data["execution_date"], "Data di esecuzione")
+        if "deadline" in data:
+            fields["deadline"] = validate_date(data["deadline"], "Deadline")
+        if "completed" in data:
+            fields["completed"] = 1 if data["completed"] else 0
+
+        execution_date = fields.get("execution_date", item["execution_date"])
+        deadline = fields.get("deadline", item["deadline"])
+        if execution_date and deadline and deadline <= execution_date:
+            raise ValueError("La deadline deve essere successiva alla data di esecuzione")
+    except ValueError as e:
+        return {"error": str(e)}, 400
+
+    if not fields:
+        return {"error": "Nessun campo da aggiornare"}, 400
+
+    set_clause = ", ".join(f"{key} = ?" for key in fields)
+    execute_db(f"UPDATE checklist_items SET {set_clause} WHERE id = ?", (*fields.values(), item_id))
+    return {"status": "ok"}
+
+
+@app.route("/checklist/<int:item_id>", methods=["DELETE"])
+def delete_checklist_item(item_id):
+    if query_one("SELECT id FROM checklist_items WHERE id = ?", [item_id]) is None:
+        return {"error": "Voce non trovata"}, 404
+    execute_db("DELETE FROM checklist_items WHERE id = ?", (item_id,))
+    return "", 204
+
+
+@app.route("/tasks/<int:task_id>/checklist/convert-all", methods=["POST"])
+def convert_all_checklist_items(task_id):
+    """Trasforma TUTTA la checklist di un task in altrettanti nodi figlio, in un
+    colpo solo (mai una trasformazione parziale: coerente con la regola di fondo
+    dell'app per cui si lavora solo sulle foglie — se la checklist non basta più,
+    l'intera foglia diventa ramo). Ricalca la logica di create_task (inclusa la
+    transizione "la foglia diventa ramo") ma è scritta a sé: niente refactor di
+    create_task per condividerla, per non rischiare regressioni su un endpoint
+    già solido."""
+    parent = get_task(task_id)
+    if parent is None:
+        return {"error": "Task non trovato"}, 404
+    if parent["children_count"] == 0 and parent["label"] == "CHIUSO":
+        return {"error": "Non è possibile creare sotto-attività da questa foglia (chiusa)"}, 409
+
+    items = query_db("SELECT * FROM checklist_items WHERE task_id = ?", [task_id])
+    if not items:
+        return {"error": "Nessun elemento da trasformare"}, 400
+
+    statements = []
+    try:
+        for item in items:
+            title = validate_checklist_description(item["description"])
+            assegnato = validate_assegnato(item["assegnato"])
+            execution_date = item["execution_date"]
+            deadline = item["deadline"]
+
+            fields = {}
+            if item["completed"]:
+                label, status = "CHIUSO", STATUS_COMPLETATO
+            else:
+                label, status = "APERTO", None
+                execution_date = enforce_open_task_rules(fields, execution_date, deadline, assegnato, [])
+
+            statements.append((
+                """
+                INSERT INTO tasks (parent_id, title, deadline, execution_date, assegnato, label, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (task_id, title, deadline, execution_date, assegnato, label, status),
+            ))
+            statements.append(("DELETE FROM checklist_items WHERE id = ?", (item["id"],)))
+    except ValueError as e:
+        return {"error": str(e)}, 400
+
+    # una foglia che diventa nodo padre perde status/focus/label e le sue dipendenze
+    if parent["children_count"] == 0:
+        statements.append((
+            "UPDATE tasks SET status = NULL, focus = 0, label = NULL, assegnato = NULL WHERE id = ?",
+            (task_id,),
+        ))
+        statements.append((
+            "DELETE FROM task_dependencies WHERE task_id = ? OR depends_on_id = ?",
+            (task_id, task_id),
+        ))
+
+    execute_transaction(statements)
+
+    return {"status": "ok", "converted": len(items)}, 201
 
 
 if __name__ == "__main__":

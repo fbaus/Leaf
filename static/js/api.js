@@ -73,3 +73,23 @@ export function openNotePath(path) {
 export function notePreviewUrl(path) {
   return `/notes/preview?path=${encodeURIComponent(path)}`;
 }
+
+export function fetchChecklist(taskId) {
+  return fetch(`/tasks/${taskId}/checklist`).then(handle);
+}
+
+export function addChecklistItem(taskId, payload) {
+  return postJson(`/tasks/${taskId}/checklist`, "POST", payload);
+}
+
+export function updateChecklistItem(itemId, payload) {
+  return postJson(`/checklist/${itemId}`, "PUT", payload);
+}
+
+export function deleteChecklistItem(itemId) {
+  return fetch(`/checklist/${itemId}`, { method: "DELETE" }).then(handle);
+}
+
+export function convertAllChecklistItems(taskId) {
+  return postJson(`/tasks/${taskId}/checklist/convert-all`, "POST", {});
+}

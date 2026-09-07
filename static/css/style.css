@@ -843,7 +843,7 @@ th, td {
   background: white;
   border-radius: 8px;
   padding: 20px;
-  width: 360px;
+  width: 620px;
   max-width: 90vw;
   max-height: 90vh;
   overflow-y: auto;
@@ -885,4 +885,84 @@ th, td {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 12px;
+}
+
+#checklist-wrapper {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #eee;
+}
+
+#checklist-wrapper h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.checklist-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 8px;
+}
+
+.checklist-table td {
+  padding: 3px 4px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.checklist-table input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.checklist-table input[type="date"] {
+  padding: 3px 4px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.checklist-row-completed input[type="text"] {
+  text-decoration: line-through;
+  color: #999;
+}
+
+.checklist-delete-btn {
+  border: 1px solid #ccc;
+  background: #f5f5f5;
+  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.checklist-delete-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.checklist-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.checklist-add-btn,
+.checklist-convert-all-btn {
+  padding: 5px 10px;
+  border: 1px solid #ccc;
+  background: #f5f5f5;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.checklist-convert-all-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }

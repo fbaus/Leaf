@@ -1,6 +1,7 @@
 import { createTask, updateTask } from "./api.js";
 import { STATUS_META, CLOSED_STATUSES, isLeaf, buildTree } from "./utils.js";
 import { state } from "./state.js";
+import { renderChecklist } from "./checklist.js";
 
 const overlay = document.getElementById("modal-overlay");
 const form = document.getElementById("node-form");
@@ -22,6 +23,8 @@ const dependenciesPickerBtn = document.getElementById("dependencies-picker-btn")
 const fieldUrgent = document.getElementById("field-urgent");
 const cancelBtn = document.getElementById("modal-cancel");
 const modalSubmit = document.getElementById("modal-submit");
+const checklistWrapper = document.getElementById("checklist-wrapper");
+const checklistContainer = document.getElementById("checklist-container");
 
 const pickerOverlay = document.getElementById("dependency-picker-overlay");
 const pickerTreeEl = document.getElementById("dependency-picker-tree");
@@ -274,9 +277,42 @@ export function openCreateModal(parentId) {
   fieldLabel.disabled = false;
   updateDependenciesSummary();
   updateLabelVisibility(null);
+  checklistWrapper.classList.add("hidden"); // serve un nodo già esistente
 
   overlay.classList.remove("hidden");
   fieldTitle.focus();
+}
+
+// campi la cui visibilità/valore dipendono dal tipo di nodo (foglia o ramo): vanno
+// ri-applicati non solo all'apertura ma anche se il tipo cambia a modale già aperto
+// (es. trasformando una voce della checklist, la foglia diventa ramo)
+function applyNodeTypeFields(node) {
+  const leaf = isLeaf(node);
+  fieldAssegnato.value = node.assegnato || "";
+  fieldLabelWrapper.style.display = leaf ? "block" : "none";
+  fieldLabel.disabled = !leaf;
+  fieldLabel.value = leaf ? node.label || "APERTO" : "APERTO";
+  fieldStatus.value = leaf && node.label === "CHIUSO" ? node.status || "" : "";
+  updateLabelVisibility(node);
+}
+
+// la checklist esiste solo sulle foglie: se una trasformazione in-modale fa
+// diventare il nodo un ramo, la sezione va nascosta senza dover richiudere il modale
+function updateChecklistVisibility(node) {
+  if (isLeaf(node)) {
+    checklistWrapper.classList.remove("hidden");
+    renderChecklist(checklistContainer, node.id, async () => {
+      await afterSaveCallback();
+      const fresh = state.tasks.find((t) => t.id === node.id);
+      if (fresh) {
+        applyNodeTypeFields(fresh);
+        updateChecklistVisibility(fresh);
+      }
+    });
+  } else {
+    checklistWrapper.classList.add("hidden");
+    checklistContainer.innerHTML = "";
+  }
 }
 
 export function openEditModal(node) {
@@ -289,17 +325,11 @@ export function openEditModal(node) {
   fieldDescription.value = node.description || "";
   fieldDeadline.value = node.deadline || "";
   fieldExecutionDate.value = node.execution_date || "";
-  fieldAssegnato.value = node.assegnato || "";
   fieldUrgent.checked = !!node.urgent;
   updateDependenciesSummary();
 
-  const leaf = isLeaf(node);
-  fieldLabelWrapper.style.display = leaf ? "block" : "none";
-  fieldLabel.disabled = !leaf;
-  fieldLabel.value = leaf ? node.label || "APERTO" : "APERTO";
-  fieldStatus.value = leaf && node.label === "CHIUSO" ? node.status || "" : "";
-
-  updateLabelVisibility(node);
+  applyNodeTypeFields(node);
+  updateChecklistVisibility(node);
 
   overlay.classList.remove("hidden");
   fieldTitle.focus();

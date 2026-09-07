@@ -44,6 +44,20 @@ CREATE TABLE notes (
   updated_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 CREATE UNIQUE INDEX idx_notes_task_day ON notes(task_id, note_date);
+
+DROP TABLE IF EXISTS checklist_items;
+
+CREATE TABLE checklist_items (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id         INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  description     TEXT NOT NULL CHECK (length(description) BETWEEN 1 AND 60),
+  assegnato       TEXT CHECK (assegnato IS NULL OR length(assegnato) <= 20),
+  execution_date  TEXT,
+  deadline        TEXT,
+  completed       INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0,1)),
+  created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX idx_checklist_task_id ON checklist_items(task_id);
 """)
 
 conn.commit()
