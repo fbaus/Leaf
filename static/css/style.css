@@ -473,6 +473,44 @@ th, td {
   opacity: 0.85;
 }
 
+.calendar-bar-handle {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #757575;
+  border: 2px solid white;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+  transform: translateY(-50%);
+  opacity: 0;
+  cursor: ew-resize;
+}
+
+.calendar-bar:hover .calendar-bar-handle {
+  opacity: 1;
+}
+
+.calendar-bar-handle.left {
+  left: -6px;
+}
+
+.calendar-bar-handle.right {
+  right: -6px;
+}
+
+.calendar-drag-tooltip {
+  position: fixed;
+  z-index: 2000;
+  background: #333;
+  color: white;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 .calendar-scrollbar-proxy {
   flex-shrink: 0;
   position: sticky;

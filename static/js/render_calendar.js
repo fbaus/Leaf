@@ -1,5 +1,6 @@
-import { state, rerender } from "./state.js";
+import { state, rerender, reload } from "./state.js";
 import { STATUS_META } from "./utils.js";
+import { updateTask } from "./api.js";
 
 const BUCKET_WIDTH = { giorno: 70, settimana: 100, mese: 120, anno: 140 };
 const PADDING = { giorno: 7, settimana: 2, mese: 2, anno: 1 };
@@ -21,6 +22,12 @@ const WEEKDAY_FMT = new Intl.DateTimeFormat("it-IT", { weekday: "long" });
 const DAY_MONTH_FMT = new Intl.DateTimeFormat("it-IT", { day: "numeric", month: "long" });
 const MONTH_SHORT_FMT = new Intl.DateTimeFormat("it-IT", { month: "short" });
 const MONTH_YEAR_FMT = new Intl.DateTimeFormat("it-IT", { month: "long", year: "numeric" });
+const WEEKDAY_SHORT = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"]; // indicizzato da Date.getDay()
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+// granularità in cui le estremità delle barre sono trascinabili (in Anno è troppo grossolano)
+const DRAGGABLE_GRANULARITIES = new Set(["giorno", "settimana", "mese"]);
 
 // ---------------------------------------------------------------------------
 // Helper sulle date (sempre a mezzanotte locale, per evitare sfasamenti di fuso)
@@ -29,6 +36,13 @@ const MONTH_YEAR_FMT = new Intl.DateTimeFormat("it-IT", { month: "long", year: "
 function parseISO(str) {
   const [y, m, d] = str.split("-").map(Number);
   return new Date(y, m - 1, d);
+}
+
+function toISO(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 function addDays(date, n) {
@@ -148,16 +162,120 @@ function bucketOffset(buckets, index) {
   return left;
 }
 
+// posizione X (px, dentro .calendar-inner) del giorno `date`, sempre a precisione di
+// giorno anche dentro un bucket più largo (settimana/mese): la larghezza del bucket viene
+// divisa per il numero di giorni che contiene davvero (28-31 per un mese)
+function dayWidthOf(bucket) {
+  const daysInBucket = Math.round((bucket.end - bucket.start) / MS_PER_DAY);
+  return bucket.width / daysInBucket;
+}
+
+function dateToX(buckets, date) {
+  const idx = findBucketIndex(buckets, date);
+  const bucket = buckets[idx];
+  const dayOffset = Math.round((date - bucket.start) / MS_PER_DAY);
+  return bucketOffset(buckets, idx) + dayOffset * dayWidthOf(bucket);
+}
+
+// inverso di dateToX: dalla posizione X al giorno preciso (usato durante il trascinamento)
+function xToDate(buckets, x) {
+  let idx = 0;
+  let acc = 0;
+  while (idx < buckets.length - 1 && x >= acc + buckets[idx].width) {
+    acc += buckets[idx].width;
+    idx++;
+  }
+  const bucket = buckets[idx];
+  const daysInBucket = Math.round((bucket.end - bucket.start) / MS_PER_DAY);
+  const dayOffset = Math.min(Math.max(Math.round((x - acc) / dayWidthOf(bucket)), 0), daysInBucket - 1);
+  return addDays(bucket.start, dayOffset);
+}
+
 function barRangeForNode(node, buckets) {
   if (!node.execution_date && !node.deadline) return null;
   const startDate = parseISO(node.execution_date || node.deadline);
   const endDate = parseISO(node.deadline || node.execution_date);
-  const startIdx = findBucketIndex(buckets, startDate);
-  const endIdx = findBucketIndex(buckets, endDate);
-  const left = bucketOffset(buckets, startIdx);
-  let width = 0;
-  for (let i = startIdx; i <= endIdx; i++) width += buckets[i].width;
-  return { left, width };
+  const left = dateToX(buckets, startDate);
+  const right = dateToX(buckets, addDays(endDate, 1)); // include per intero il giorno di deadline
+  return { left, width: right - left };
+}
+
+// ---------------------------------------------------------------------------
+// Trascinamento delle estremità di una barra (Data di esecuzione / Deadline)
+// ---------------------------------------------------------------------------
+
+function createDragTooltip() {
+  const tooltip = document.createElement("div");
+  tooltip.className = "calendar-drag-tooltip";
+  document.body.appendChild(tooltip);
+  return tooltip;
+}
+
+function updateDragTooltip(tooltip, date, clientX, clientY) {
+  const dd = String(date.getDate()).padStart(2, "0");
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  tooltip.textContent = `${dd}/${mm}/${date.getFullYear()} ${WEEKDAY_SHORT[date.getDay()]}`;
+  tooltip.style.left = `${clientX + 14}px`;
+  tooltip.style.top = `${clientY - 28}px`;
+}
+
+// `edge` è "left" (Data di esecuzione) o "right" (Deadline); il clamp reciproco impedisce
+// di trascinare un'estremità oltre l'altra, così non si arriva mai a uno stato che il
+// backend rifiuterebbe (deadline sempre successiva alla data di esecuzione)
+function attachBarHandleDrag(handle, edge, node, buckets, totalWidth, inner, bar) {
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (activeResizeCleanup) activeResizeCleanup();
+
+    const innerLeft = inner.getBoundingClientRect().left;
+    const execDate = parseISO(node.execution_date);
+    const deadlineDate = parseISO(node.deadline);
+    const originalDate = edge === "left" ? execDate : deadlineDate;
+    let currentDate = originalDate;
+
+    const tooltip = createDragTooltip();
+
+    const onMouseMove = (moveEvent) => {
+      const x = Math.min(Math.max(moveEvent.clientX - innerLeft, 0), totalWidth - 1);
+      let newDate = xToDate(buckets, x);
+      if (edge === "left") {
+        const maxDate = addDays(deadlineDate, -1);
+        if (newDate > maxDate) newDate = maxDate;
+      } else {
+        const minDate = addDays(execDate, 1);
+        if (newDate < minDate) newDate = minDate;
+      }
+      currentDate = newDate;
+
+      const startDate = edge === "left" ? newDate : execDate;
+      const endDate = edge === "left" ? deadlineDate : newDate;
+      const left = dateToX(buckets, startDate);
+      const right = dateToX(buckets, addDays(endDate, 1));
+      bar.style.left = `${left + 1}px`;
+      bar.style.width = `${Math.max(right - left - 2, 4)}px`;
+
+      updateDragTooltip(tooltip, newDate, moveEvent.clientX, moveEvent.clientY);
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      activeResizeCleanup = null;
+      tooltip.remove();
+
+      if (currentDate.getTime() !== originalDate.getTime()) {
+        const payload = edge === "left" ? { execution_date: toISO(currentDate) } : { deadline: toISO(currentDate) };
+        updateTask(node.id, payload)
+          .then(reload)
+          .catch((err) => alert(err.message));
+      }
+    };
+
+    activeResizeCleanup = onMouseUp;
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -175,7 +293,8 @@ export function renderCalendarOverlay(mainPanel, leaves) {
 
   const tableRect = table.getBoundingClientRect();
   const theadHeight = table.tHead.getBoundingClientRect().height;
-  const mainPanelLeft = mainPanel.getBoundingClientRect().left;
+  const mainPanelRect = mainPanel.getBoundingClientRect();
+  const mainPanelLeft = mainPanelRect.left;
   // il bordo sinistro del calendario è trascinabile fra la fine della colonna Titolo
   // e l'inizio della colonna Data di esecuzione
   const minLeft = table.tHead.rows[0].children[1].getBoundingClientRect().right - mainPanelLeft;
@@ -191,6 +310,11 @@ export function renderCalendarOverlay(mainPanel, leaves) {
   const overlay = document.createElement("div");
   overlay.className = "calendar-overlay";
   overlay.style.left = `${colOffset}px`;
+  // l'overlay non parte dalla cima di #main-panel ma esattamente dalla cima della <table>
+  // (sopra c'è la barra filtri): senza questo, la toolbar del calendario (altezza fissa)
+  // non combacia con l'altezza reale della barra filtri e .calendar-inner finisce
+  // disallineato rispetto alle righe della tabella di qualche pixel
+  overlay.style.top = `${tableRect.top - mainPanelRect.top - TOOLBAR_HEIGHT}px`;
   overlay.style.height = `${tableHeight + TOOLBAR_HEIGHT + PROXY_HEIGHT}px`;
 
   const resizeHandle = document.createElement("div");
@@ -305,6 +429,19 @@ export function renderCalendarOverlay(mainPanel, leaves) {
     bar.style.top = `${top + height * 0.2}px`;
     bar.style.height = `${height * 0.6}px`;
     bar.title = node.title;
+
+    if (DRAGGABLE_GRANULARITIES.has(granularity)) {
+      const leftHandle = document.createElement("div");
+      leftHandle.className = "calendar-bar-handle left";
+      bar.appendChild(leftHandle);
+      attachBarHandleDrag(leftHandle, "left", node, buckets, totalWidth, inner, bar);
+
+      const rightHandle = document.createElement("div");
+      rightHandle.className = "calendar-bar-handle right";
+      bar.appendChild(rightHandle);
+      attachBarHandleDrag(rightHandle, "right", node, buckets, totalWidth, inner, bar);
+    }
+
     inner.appendChild(bar);
   });
 
