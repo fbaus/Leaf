@@ -211,10 +211,20 @@ function createDragTooltip() {
   return tooltip;
 }
 
-function updateDragTooltip(tooltip, date, clientX, clientY) {
+function formatDragDate(date) {
   const dd = String(date.getDate()).padStart(2, "0");
   const mm = String(date.getMonth() + 1).padStart(2, "0");
-  tooltip.textContent = `${dd}/${mm}/${date.getFullYear()} ${WEEKDAY_SHORT[date.getDay()]}`;
+  return `${dd}/${mm}/${date.getFullYear()} ${WEEKDAY_SHORT[date.getDay()]}`;
+}
+
+function updateDragTooltip(tooltip, date, clientX, clientY) {
+  tooltip.textContent = formatDragDate(date);
+  tooltip.style.left = `${clientX + 14}px`;
+  tooltip.style.top = `${clientY - 28}px`;
+}
+
+function updateDragTooltipRange(tooltip, execDate, deadlineDate, clientX, clientY) {
+  tooltip.textContent = `${formatDragDate(execDate)}  →  ${formatDragDate(deadlineDate)}`;
   tooltip.style.left = `${clientX + 14}px`;
   tooltip.style.top = `${clientY - 28}px`;
 }
@@ -267,6 +277,64 @@ function attachBarHandleDrag(handle, edge, node, buckets, totalWidth, inner, bar
       if (currentDate.getTime() !== originalDate.getTime()) {
         const payload = edge === "left" ? { execution_date: toISO(currentDate) } : { deadline: toISO(currentDate) };
         updateTask(node.id, payload)
+          .then(reload)
+          .catch((err) => alert(err.message));
+      }
+    };
+
+    activeResizeCleanup = onMouseUp;
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  });
+}
+
+// aggancio centrale: sposta l'intera barra in blocco, mantenendo invariata la durata
+// (data di esecuzione e deadline traslano dello stesso numero di giorni)
+function attachBarMoveDrag(handle, node, buckets, totalWidth, inner, bar) {
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (activeResizeCleanup) activeResizeCleanup();
+
+    const innerLeft = inner.getBoundingClientRect().left;
+    const execDate = parseISO(node.execution_date);
+    const deadlineDate = parseISO(node.deadline);
+
+    const startX = Math.min(Math.max(e.clientX - innerLeft, 0), totalWidth - 1);
+    const startDragDate = xToDate(buckets, startX);
+
+    let currentExecDate = execDate;
+    let currentDeadlineDate = deadlineDate;
+
+    const tooltip = createDragTooltip();
+
+    const onMouseMove = (moveEvent) => {
+      const x = Math.min(Math.max(moveEvent.clientX - innerLeft, 0), totalWidth - 1);
+      const dragDate = xToDate(buckets, x);
+      const deltaDays = Math.round((dragDate - startDragDate) / MS_PER_DAY);
+
+      currentExecDate = addDays(execDate, deltaDays);
+      currentDeadlineDate = addDays(deadlineDate, deltaDays);
+
+      const left = dateToX(buckets, currentExecDate);
+      const right = dateToX(buckets, addDays(currentDeadlineDate, 1));
+      bar.style.left = `${left + 1}px`;
+      bar.style.width = `${Math.max(right - left - 2, 4)}px`;
+
+      updateDragTooltipRange(tooltip, currentExecDate, currentDeadlineDate, moveEvent.clientX, moveEvent.clientY);
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      activeResizeCleanup = null;
+      tooltip.remove();
+
+      if (currentExecDate.getTime() !== execDate.getTime()) {
+        updateTask(node.id, {
+          execution_date: toISO(currentExecDate),
+          deadline: toISO(currentDeadlineDate),
+        })
           .then(reload)
           .catch((err) => alert(err.message));
       }
@@ -440,6 +508,12 @@ export function renderCalendarOverlay(mainPanel, leaves) {
       rightHandle.className = "calendar-bar-handle right";
       bar.appendChild(rightHandle);
       attachBarHandleDrag(rightHandle, "right", node, buckets, totalWidth, inner, bar);
+
+      const centerHandle = document.createElement("div");
+      centerHandle.className = "calendar-bar-handle center";
+      centerHandle.title = "Trascina per spostare l'intera barra";
+      bar.appendChild(centerHandle);
+      attachBarMoveDrag(centerHandle, node, buckets, totalWidth, inner, bar);
     }
 
     inner.appendChild(bar);

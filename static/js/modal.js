@@ -103,14 +103,7 @@ fieldDeadline.addEventListener("change", () => {
 });
 fieldExecutionDate.addEventListener("change", applyOpenTaskRules);
 
-// assegnato e dipendenze sono mutualmente esclusivi: impostare l'uno svuota l'altro
-fieldAssegnato.addEventListener("input", () => {
-  if (fieldAssegnato.value.trim() !== "" && selectedDependencyIds.size > 0) {
-    selectedDependencyIds.clear();
-    updateDependenciesSummary();
-  }
-  applyOpenTaskRules();
-});
+fieldAssegnato.addEventListener("input", applyOpenTaskRules);
 
 function updateLabelVisibility(node) {
   const label = fieldLabel.value;
@@ -232,7 +225,6 @@ function openDependencyPicker() {
 dependenciesPickerBtn.addEventListener("click", openDependencyPicker);
 pickerConfirmBtn.addEventListener("click", () => {
   pickerOverlay.classList.add("hidden");
-  if (selectedDependencyIds.size > 0) fieldAssegnato.value = "";
   updateDependenciesSummary();
   applyOpenTaskRules();
 });

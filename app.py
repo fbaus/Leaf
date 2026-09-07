@@ -111,15 +111,17 @@ def enforce_open_task_rules(fields, execution_date, deadline, assegnato, depende
         raise ValueError("La deadline deve essere successiva alla data di esecuzione")
     if assegnato and (execution_date is None or deadline is None):
         raise ValueError("Per assegnare il task servono prima data di esecuzione e deadline")
-    if assegnato and dependency_ids:
-        raise ValueError("Un task non può avere sia un assegnatario sia delle dipendenze")
     return execution_date
 
 
 def compute_open_status(execution_date, deadline, assegnato, dep_statuses, today):
     """Calcola (status, escalato) per un task APERTO. Nessuna ricorsione: dep_statuses
     sono valori già memorizzati (uno stato 'risolvente' è sempre 9/10, scritto a mano
-    su un task CHIUSO, mai un valore da ricalcolare a sua volta)."""
+    su un task CHIUSO, mai un valore da ricalcolare a sua volta).
+
+    Con dipendenze non risolte, queste hanno priorità sull'assegnatario: finché non si
+    sbloccano, il task resta DIPENDENTE (o BLOCCATO oltre la deadline) anche se assegnato
+    a qualcuno, senza passare per PIANIFICATO/DELEGATO."""
     has_deps = bool(dep_statuses)
     deps_resolved = (
         has_deps
@@ -131,14 +133,16 @@ def compute_open_status(execution_date, deadline, assegnato, dep_statuses, today
     if execution_date is None:
         return (STATUS_DIPENDENTE if effective_dp else STATUS_IN_LISTA), False
 
-    if assegnato:
-        return (STATUS_IN_RITARDO if today >= deadline else STATUS_DELEGATO), False
     if effective_dp:
+        if assegnato:
+            return (STATUS_BLOCCATO if today >= deadline else STATUS_DIPENDENTE), False
         if today < execution_date:
             return STATUS_PIANIFICATO, False
         if today < deadline:
             return STATUS_DIPENDENTE, False
         return STATUS_BLOCCATO, False
+    if assegnato:
+        return (STATUS_IN_RITARDO if today >= deadline else STATUS_DELEGATO), False
     # task semplice, senza assegnatario né dipendenze attive: appena raggiunta
     # la data di esecuzione diventa ATTIVO ed è questa l'unica transizione
     # segnalata con l'escalation (calendario + riga gialla)
@@ -253,6 +257,57 @@ def replace_dependencies_statements(task_id, dependency_ids):
 def get_dependency_ids(task_id):
     rows = query_db("SELECT depends_on_id FROM task_dependencies WHERE task_id = ?", [task_id])
     return [r["depends_on_id"] for r in rows]
+
+
+def get_ancestor_ids(task_id):
+    rows = query_db(
+        """
+        WITH RECURSIVE ancestors(id, parent_id) AS (
+            SELECT id, parent_id FROM tasks WHERE id = ?
+            UNION ALL
+            SELECT t.id, t.parent_id
+            FROM tasks t
+            JOIN ancestors a ON t.id = a.parent_id
+        )
+        SELECT id FROM ancestors WHERE id != ?
+        """,
+        [task_id, task_id],
+    )
+    return [r["id"] for r in rows]
+
+
+def cleanup_resolved_dependencies(task_id):
+    """Una dipendenza risolta (COMPLETATO/INTERROTTO) deve sparire da sola dalla lista
+    dipendenze di chi dipende da lei — sia che si tratti di `task_id` stesso sia di uno
+    dei suoi antenati (un ramo può diventare risolto proprio a seguito di questa
+    modifica, se `task_id` era l'ultimo discendente non risolto)."""
+    ids_to_check = [task_id] + get_ancestor_ids(task_id)
+
+    tasks = query_db(
+        """
+        SELECT t.id, t.parent_id, t.status,
+               (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = t.id) AS children_count
+        FROM tasks t
+        """
+    )
+    tasks_by_id = {t["id"]: t for t in tasks}
+    children_by_parent = {}
+    for t in tasks:
+        if t["parent_id"] is not None:
+            children_by_parent.setdefault(t["parent_id"], []).append(t)
+
+    cache = {}
+    resolved_ids = [
+        tid for tid in ids_to_check
+        if resolve_dependency_status(tid, tasks_by_id, children_by_parent, cache)
+        in (STATUS_COMPLETATO, STATUS_INTERROTTO)
+    ]
+    if resolved_ids:
+        placeholders = ",".join("?" * len(resolved_ids))
+        execute_db(
+            f"DELETE FROM task_dependencies WHERE depends_on_id IN ({placeholders})",
+            resolved_ids,
+        )
 
 
 def get_task(task_id):
@@ -469,6 +524,10 @@ def update_task(task_id):
 
     execute_transaction(statements)
 
+    # una dipendenza appena risolta (o un ramo diventato risolto grazie a questa modifica)
+    # deve sparire da sola dalle dipendenze di chi la usa
+    cleanup_resolved_dependencies(task_id)
+
     return {"status": "ok"}
 
 
@@ -551,27 +610,28 @@ def move_task(task_id):
 
 @app.route("/tasks/<int:task_id>", methods=["DELETE"])
 def delete_task(task_id):
+    task = get_task(task_id)
+    parent_id = task["parent_id"] if task is not None else None
+
     # ON DELETE CASCADE elimina automaticamente sotto-albero, note e dipendenze collegate
     execute_db("DELETE FROM tasks WHERE id = ?", (task_id,))
+
+    if parent_id is not None:
+        parent = get_task(parent_id)
+        # un ramo che ha appena perso il suo ultimo figlio torna a essere una foglia: il
+        # suo status va ricalcolato, cosa che richiede prima di tutto riavere un label
+        # (un ramo non ne ha, essendo stato azzerato quando aveva guadagnato il suo primo
+        # figlio) — le altre proprietà (execution_date/deadline se presenti) restano e
+        # partecipano subito al ricalcolo automatico dello status in GET /tasks
+        if parent is not None and parent["children_count"] == 0 and parent["label"] is None:
+            execute_db("UPDATE tasks SET label = 'APERTO' WHERE id = ?", (parent_id,))
+
     return {"status": "ok"}
 
 
 @app.route("/tasks/<int:task_id>/ancestors", methods=["GET"])
 def get_ancestors(task_id):
-    rows = query_db(
-        """
-        WITH RECURSIVE ancestors(id, parent_id) AS (
-            SELECT id, parent_id FROM tasks WHERE id = ?
-            UNION ALL
-            SELECT t.id, t.parent_id
-            FROM tasks t
-            JOIN ancestors a ON t.id = a.parent_id
-        )
-        SELECT id FROM ancestors
-        """,
-        [task_id],
-    )
-    return jsonify([r["id"] for r in rows])
+    return jsonify(get_ancestor_ids(task_id))
 
 
 # ---------------------------------------------------------------------------
@@ -879,6 +939,10 @@ def convert_all_checklist_items(task_id):
         ))
 
     execute_transaction(statements)
+
+    # una voce già completata diventa un figlio subito COMPLETATO: se questo risolve
+    # il ramo (o uno dei suoi antenati), va rimosso dalle dipendenze di chi dipende da lui
+    cleanup_resolved_dependencies(task_id)
 
     return {"status": "ok", "converted": len(items)}, 201
 

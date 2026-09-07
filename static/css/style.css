@@ -499,6 +499,13 @@ th, td {
   right: -6px;
 }
 
+.calendar-bar-handle.center {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  cursor: move;
+}
+
 .calendar-drag-tooltip {
   position: fixed;
   z-index: 2000;
