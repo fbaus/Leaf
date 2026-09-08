@@ -11,6 +11,9 @@ const fieldDescription = document.getElementById("field-description");
 const fieldDeadline = document.getElementById("field-deadline");
 const fieldDeadlineLabel = document.getElementById("field-deadline-label");
 const fieldExecutionDate = document.getElementById("field-execution-date");
+const fieldDatesEditableRow = document.getElementById("field-dates-editable-row");
+const fieldDatesComputedWrapper = document.getElementById("field-dates-computed-wrapper");
+const fieldDatesComputed = document.getElementById("field-dates-computed");
 const fieldLabelWrapper = document.getElementById("field-label-wrapper");
 const fieldLabel = document.getElementById("field-label");
 const fieldStatusOpenWrapper = document.getElementById("field-status-open-wrapper");
@@ -38,6 +41,7 @@ let editingId = null;
 let creatingParentId = null;
 let afterSaveCallback = () => {};
 let selectedDependencyIds = new Set();
+let editingIsLeaf = true; // un nodo nuovo è sempre una foglia
 
 function populateStatusOptions() {
   fieldStatus.innerHTML = "";
@@ -276,6 +280,7 @@ export function openCreateModal(parentId) {
   mode = "create";
   creatingParentId = parentId;
   editingId = null;
+  editingIsLeaf = true; // un nodo nuovo è sempre una foglia
   selectedDependencyIds = new Set();
 
   titleEl.textContent = parentId === null ? "Nuovo progetto" : "Nuova sotto-attività";
@@ -285,6 +290,8 @@ export function openCreateModal(parentId) {
   fieldLabel.disabled = false;
   updateDependenciesSummary();
   updateLabelVisibility(null);
+  fieldDatesEditableRow.style.display = "flex";
+  fieldDatesComputedWrapper.style.display = "none";
   checklistWrapper.classList.add("hidden"); // serve un nodo già esistente
   fieldFocusWrapper.classList.add("hidden"); // idem: il focus si attiva solo su un nodo esistente
 
@@ -297,12 +304,21 @@ export function openCreateModal(parentId) {
 // (es. trasformando una voce della checklist, la foglia diventa ramo)
 function applyNodeTypeFields(node) {
   const leaf = isLeaf(node);
+  editingIsLeaf = leaf;
   fieldAssegnato.value = node.assegnato || "";
   fieldLabelWrapper.style.display = leaf ? "block" : "none";
   fieldLabel.disabled = !leaf;
   fieldLabel.value = leaf ? node.label || "APERTO" : "APERTO";
   fieldStatus.value = leaf && node.label === "CHIUSO" ? node.status || "" : "";
   updateLabelVisibility(node);
+
+  // le date di un ramo sono il rollup automatico dei figli: non modificabili a mano
+  fieldDatesEditableRow.style.display = leaf ? "flex" : "none";
+  fieldDatesComputedWrapper.style.display = leaf ? "none" : "flex";
+  if (!leaf) {
+    fieldDatesComputed.textContent =
+      node.execution_date && node.deadline ? `${node.execution_date} → ${node.deadline}` : "—";
+  }
 
   // il focus è consentito solo su una foglia APERTA, come nel menu contestuale dell'albero
   fieldFocus.checked = !!node.focus;
@@ -358,10 +374,15 @@ async function submitForm() {
   const payload = {
     title: fieldTitle.value.trim(),
     description: fieldDescription.value.trim() || null,
-    deadline: fieldDeadline.value || null,
-    execution_date: fieldExecutionDate.value || null,
     urgent: fieldUrgent.checked,
   };
+
+  // le date di un ramo sono calcolate automaticamente dai figli: non fanno parte del
+  // payload (il backend le rifiuterebbe comunque se un nodo con figli provasse a impostarle)
+  if (editingIsLeaf) {
+    payload.deadline = fieldDeadline.value || null;
+    payload.execution_date = fieldExecutionDate.value || null;
+  }
 
   if (fieldLabelWrapper.style.display === "block") {
     payload.label = fieldLabel.value;

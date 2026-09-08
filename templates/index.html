@@ -69,12 +69,17 @@
             </label>
           </div>
         </div>
-        <div class="field-row">
+        <div class="field-row" id="field-dates-editable-row">
           <label>Data esecuzione
             <input id="field-execution-date" type="date">
           </label>
           <label id="field-deadline-label">Deadline
             <input id="field-deadline" type="date">
+          </label>
+        </div>
+        <div class="field-row hidden" id="field-dates-computed-wrapper">
+          <label>Date (calcolate automaticamente dai figli)
+            <div id="field-dates-computed" class="computed-status"></div>
           </label>
         </div>
         <div class="field-row">

@@ -323,6 +323,34 @@ def get_task(task_id):
     )
 
 
+def recompute_rollup_dates(node_id):
+    """Le date di un nodo con figli non si impostano più a mano: sono sempre il rollup
+    automatico dei figli (la minima data di esecuzione, la massima deadline). Va richiamata
+    ogni volta che cambia la composizione dei figli di `node_id` o la data di uno di essi;
+    se il valore risultante cambia davvero, si propaga ricorsivamente anche al genitore di
+    `node_id` (e così via fino alla radice), così una modifica su una foglia profonda
+    rimane sempre coerente con tutti i suoi antenati senza doverli toccare a mano."""
+    node = get_task(node_id)
+    if node is None or node["children_count"] == 0:
+        return
+
+    children = query_db("SELECT execution_date, deadline FROM tasks WHERE parent_id = ?", [node_id])
+    exec_dates = [c["execution_date"] for c in children if c["execution_date"]]
+    deadlines = [c["deadline"] for c in children if c["deadline"]]
+    new_execution_date = min(exec_dates) if exec_dates else None
+    new_deadline = max(deadlines) if deadlines else None
+
+    if new_execution_date == node["execution_date"] and new_deadline == node["deadline"]:
+        return  # nessun cambiamento: niente da propagare più in alto
+
+    execute_db(
+        "UPDATE tasks SET execution_date = ?, deadline = ? WHERE id = ?",
+        (new_execution_date, new_deadline, node_id),
+    )
+    if node["parent_id"] is not None:
+        recompute_rollup_dates(node["parent_id"])
+
+
 # ---------------------------------------------------------------------------
 # Tasks API
 # ---------------------------------------------------------------------------
@@ -432,6 +460,11 @@ def create_task():
     if statements:
         execute_transaction(statements)
 
+    # il nuovo figlio partecipa subito al rollup automatico delle date del padre
+    # (sia che il padre fosse già un ramo, sia che l'abbia appena diventato)
+    if parent_id is not None:
+        recompute_rollup_dates(parent_id)
+
     return "", 201
 
 
@@ -482,9 +515,10 @@ def update_task(task_id):
 
     try:
         if task["children_count"] > 0:
-            # un nodo con figli non ha label/status (non è né APERTO né CHIUSO): si
-            # limita ad aggiornare le altre proprietà, con le stesse regole di coerenza
-            # fra le date di un task APERTO
+            # un nodo con figli non ha label/status (non è né APERTO né CHIUSO) e le sue
+            # date non si impostano più a mano: sono sempre il rollup automatico dei figli
+            if "execution_date" in fields or "deadline" in fields:
+                return {"error": "Le date di un nodo con figli sono calcolate automaticamente dai figli"}, 409
             enforce_open_task_rules(fields, execution_date, deadline, assegnato, final_dependency_ids)
         elif label == "APERTO":
             if "status" in fields:
@@ -523,6 +557,12 @@ def update_task(task_id):
         statements.extend(replace_dependencies_statements(task_id, dependency_ids))
 
     execute_transaction(statements)
+
+    # se le date di una foglia sono appena cambiate, il rollup automatico del padre (e dei
+    # suoi antenati) va ricalcolato di conseguenza
+    if task["children_count"] == 0 and task["parent_id"] is not None:
+        if new_ex != task["execution_date"] or new_dl != task["deadline"]:
+            recompute_rollup_dates(task["parent_id"])
 
     # una dipendenza appena risolta (o un ramo diventato risolto grazie a questa modifica)
     # deve sparire da sola dalle dipendenze di chi la usa
@@ -590,6 +630,7 @@ def move_task(task_id):
     if task["parent_id"] == new_parent_id:
         return {"status": "ok"}
 
+    old_parent_id = task["parent_id"]
     statements = [("UPDATE tasks SET parent_id = ? WHERE id = ?", (new_parent_id, task_id))]
 
     # se il nuovo padre era una foglia, diventa un ramo: stessa transizione già
@@ -605,6 +646,14 @@ def move_task(task_id):
         ))
 
     execute_transaction(statements)
+
+    # sia il vecchio sia il nuovo padre perdono/guadagnano un figlio: il rollup delle
+    # date va ricalcolato per entrambi (ognuno propaga poi verso i propri antenati)
+    if old_parent_id is not None:
+        recompute_rollup_dates(old_parent_id)
+    if new_parent_id is not None:
+        recompute_rollup_dates(new_parent_id)
+
     return {"status": "ok"}
 
 
@@ -625,6 +674,11 @@ def delete_task(task_id):
         # partecipano subito al ricalcolo automatico dello status in GET /tasks
         if parent is not None and parent["children_count"] == 0 and parent["label"] is None:
             execute_db("UPDATE tasks SET label = 'APERTO' WHERE id = ?", (parent_id,))
+
+        # il figlio eliminato non contribuisce più al rollup delle date del padre (se il
+        # padre è tornato foglia, la funzione non fa nulla: le sue date restano quelle
+        # dell'ultimo rollup, un punto di partenza ragionevole per una foglia appena tornata)
+        recompute_rollup_dates(parent_id)
 
     return {"status": "ok"}
 
@@ -939,6 +993,9 @@ def convert_all_checklist_items(task_id):
         ))
 
     execute_transaction(statements)
+
+    # i nuovi figli partecipano subito al rollup automatico delle date del padre
+    recompute_rollup_dates(task_id)
 
     # una voce già completata diventa un figlio subito COMPLETATO: se questo risolve
     # il ramo (o uno dei suoi antenati), va rimosso dalle dipendenze di chi dipende da lui
