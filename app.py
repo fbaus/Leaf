@@ -351,6 +351,31 @@ def recompute_rollup_dates(node_id):
         recompute_rollup_dates(node["parent_id"])
 
 
+def recompute_subtree_rollup(node_id):
+    """'Auto-guarigione' del rollup su tutto un sottoalbero: a differenza di
+    recompute_rollup_dates (che aggiorna un nodo dai suoi figli e propaga verso l'alto),
+    questa scende PRIMA in tutti i rami discendenti (dal basso verso l'alto, figli prima
+    dei genitori) così ognuno usa già i valori aggiornati dei propri figli. Serve a
+    correggere derive che l'aggiornamento incrementale potrebbe in teoria non aver
+    coperto (es. dati storici precedenti all'introduzione del rollup automatico) — viene
+    richiamata quando si apre la vista Gantt o la configurazione di un ramo, non a ogni
+    modifica (per quello basta e avanza recompute_rollup_dates)."""
+    node = get_task(node_id)
+    if node is None or node["children_count"] == 0:
+        return
+    for child in query_db("SELECT id FROM tasks WHERE parent_id = ?", [node_id]):
+        recompute_subtree_rollup(child["id"])
+    recompute_rollup_dates(node_id)
+
+
+@app.route("/tasks/<int:task_id>/recompute-rollup", methods=["POST"])
+def recompute_rollup(task_id):
+    if get_task(task_id) is None:
+        return {"error": "Task non trovato"}, 404
+    recompute_subtree_rollup(task_id)
+    return {"status": "ok"}
+
+
 # ---------------------------------------------------------------------------
 # Tasks API
 # ---------------------------------------------------------------------------

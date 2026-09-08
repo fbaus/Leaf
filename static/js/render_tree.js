@@ -12,6 +12,7 @@ import { deleteTask, setFocus, moveTask } from "./api.js";
 import { openCreateModal, openEditModal } from "./modal.js";
 import { showContextMenu } from "./context_menu.js";
 import { showConfirmDialog } from "./confirm_dialog.js";
+import { openGanttView } from "./render_gantt.js";
 
 function subtreeMatches(node, searchText) {
   if (matchesSearch(node, searchText)) return true;
@@ -156,6 +157,12 @@ function nodeContextMenuItems(node, hasChildren) {
       state.focusNewNoteInput = true;
       rerender();
     },
+  });
+
+  items.push({
+    label: "Vista Gantt",
+    disabled: !hasChildren,
+    onClick: () => openGanttView(node),
   });
 
   items.push({

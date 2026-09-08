@@ -4,6 +4,7 @@ import { renderLeaves } from "./render_leaves.js";
 import { renderNotesSidePanel } from "./render_notes.js";
 import { openCreateModal, initModal } from "./modal.js";
 import { captureFocus, restoreFocus } from "./focus.js";
+import { refreshGanttIfOpen } from "./render_gantt.js";
 
 const mainPanel = document.getElementById("main-panel");
 const sidePanel = document.getElementById("side-panel");
@@ -36,6 +37,7 @@ function render() {
   sidePanel.style.maxWidth = customWidth ? "none" : "";
 
   restoreFocus(mainPanel, mainFocus);
+  refreshGanttIfOpen();
 }
 
 onRender(render);

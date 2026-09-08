@@ -1,15 +1,15 @@
 // 1 ATTIVO, 2 IN RITARDO, 3 BLOCCATO, 4 PIANIFICATO, 5 DIPENDENTE,
 // 6 DELEGATO, 7 IN LISTA, 8 QUARANTENA, 9 COMPLETATO, 10 INTERROTTO
 export const STATUS_META = {
-  1: { symbol: "⬤", color: "#2e7d32", label: "Attivo" },
+  1: { symbol: "⬤", color: "#2cce34", label: "Attivo" },
   2: { symbol: "⏰", color: "#c62828", label: "In ritardo" },
   3: { symbol: "⛔", color: "#ef6c00", label: "Bloccato" },
   4: { symbol: "📅", color: "#1565c0", label: "Pianificato" },
-  5: { symbol: "🔗", color: "#963CE8", label: "Dipendente" },
+  5: { symbol: "🔗", color: "#de6be2", label: "Dipendente" },
   6: { symbol: "👤", color: "#8e24aa", label: "Delegato" },
   7: { symbol: "⏸", color: "#757575", label: "In lista" },
   8: { symbol: "🔍", color: "#f9a825", label: "Quarantena" },
-  9: { symbol: "✔", color: "#1b5e20", label: "Completato" },
+  9: { symbol: "✔", color: "#41e9d8", label: "Completato" },
   10: { symbol: "✖", color: "#424242", label: "Interrotto" },
 };
 
@@ -83,7 +83,7 @@ export function matchesSearch(node, text) {
   return title.includes(needle) || desc.includes(needle);
 }
 
-function dateSortKey(value) {
+export function dateSortKey(value) {
   return value ? value : "9999-99-99";
 }
 

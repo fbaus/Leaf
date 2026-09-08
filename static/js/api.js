@@ -38,6 +38,10 @@ export function setFocus(id, focus) {
   return postJson(`/tasks/${id}/focus`, "PATCH", { focus });
 }
 
+export function recomputeRollup(id) {
+  return postJson(`/tasks/${id}/recompute-rollup`, "POST", {});
+}
+
 export function moveTask(id, parentId) {
   return postJson(`/tasks/${id}/parent`, "PATCH", { parent_id: parentId });
 }

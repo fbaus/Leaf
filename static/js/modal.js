@@ -1,4 +1,4 @@
-import { createTask, updateTask, setFocus } from "./api.js";
+import { createTask, updateTask, setFocus, recomputeRollup } from "./api.js";
 import { STATUS_META, CLOSED_STATUSES, isLeaf, buildTree } from "./utils.js";
 import { state, reload } from "./state.js";
 import { renderChecklist } from "./checklist.js";
@@ -344,22 +344,38 @@ function updateChecklistVisibility(node) {
   }
 }
 
-export function openEditModal(node) {
+export async function openEditModal(node) {
   mode = "edit";
   editingId = node.id;
-  selectedDependencyIds = new Set(node.dependency_ids || []);
+
+  // per un ramo, ricalcola dal basso il rollup di tutto il sottoalbero prima di mostrare
+  // "Date (calcolate automaticamente dai figli)": auto-guarigione contro eventuali derive,
+  // non solo l'aggiornamento incrementale già garantito a ogni singola modifica. Per una
+  // foglia non serve (le sue date sono sue, non un rollup) e si evita il giro di rete
+  let fresh = node;
+  if (node.children_count > 0) {
+    try {
+      await recomputeRollup(node.id);
+      await reload();
+      fresh = state.tasks.find((t) => t.id === node.id) || node;
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  selectedDependencyIds = new Set(fresh.dependency_ids || []);
 
   titleEl.textContent = "Configura nodo";
-  fieldTitle.value = node.title || "";
-  fieldDescription.value = node.description || "";
-  fieldDeadline.value = node.deadline || "";
-  fieldExecutionDate.value = node.execution_date || "";
-  fieldUrgent.checked = !!node.urgent;
+  fieldTitle.value = fresh.title || "";
+  fieldDescription.value = fresh.description || "";
+  fieldDeadline.value = fresh.deadline || "";
+  fieldExecutionDate.value = fresh.execution_date || "";
+  fieldUrgent.checked = !!fresh.urgent;
   updateDependenciesSummary();
   fieldFocusWrapper.classList.remove("hidden");
 
-  applyNodeTypeFields(node);
-  updateChecklistVisibility(node);
+  applyNodeTypeFields(fresh);
+  updateChecklistVisibility(fresh);
 
   overlay.classList.remove("hidden");
   fieldTitle.focus();
