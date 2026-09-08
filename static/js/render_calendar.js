@@ -89,6 +89,28 @@ export function renderCalendarOverlay(mainPanel, leaves) {
     };
     toolbar.appendChild(btn);
   });
+
+  // sorting secondario a scelta manuale (in aggiunta al criterio di ordinamento primario
+  // della tabella FOGLIE), per data di esecuzione o per deadline, su tutti gli status
+  const dateSortGroup = document.createElement("div");
+  dateSortGroup.className = "calendar-date-sort-group";
+  [
+    { key: "execution_date", label: "EX" },
+    { key: "deadline", label: "DL" },
+  ].forEach(({ key, label }) => {
+    const btn = document.createElement("button");
+    btn.className = "filter-group-btn";
+    btn.classList.toggle("active", state.leafFilters.dateSecondarySort === key);
+    btn.textContent = label;
+    btn.title = `Ordina in aggiunta per ${label === "EX" ? "data di esecuzione" : "deadline"}`;
+    btn.onclick = () => {
+      state.leafFilters.dateSecondarySort = state.leafFilters.dateSecondarySort === key ? null : key;
+      rerender();
+    };
+    dateSortGroup.appendChild(btn);
+  });
+  toolbar.appendChild(dateSortGroup);
+
   overlay.appendChild(toolbar);
 
   const scroll = document.createElement("div");

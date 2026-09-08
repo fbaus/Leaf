@@ -74,7 +74,7 @@ function renderTable(mainPanel, tasksById) {
   let leaves = state.tasks.filter(isLeaf);
   leaves = leaves.filter((n) => matchesStatusGroup(n, state.leafFilters.statusGroup));
   leaves = leaves.filter((n) => isRootIncluded(rootIdOf(n, tasksById)));
-  leaves = sortRows(leaves, tasksById, state.leafFilters.sortBy);
+  leaves = sortRows(leaves, tasksById, state.leafFilters.sortBy, state.leafFilters.dateSecondarySort);
 
   const table = document.createElement("table");
   table.className = "leaves-table";

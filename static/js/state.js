@@ -9,6 +9,7 @@ export const state = {
     statusGroup: "APERTE",
     rootIds: null, // null = tutti i progetti visibili
     sortBy: "status",
+    dateSecondarySort: null, // null | "execution_date" | "deadline" (bottoni EX/DL nel calendario)
   },
   selectedNoteNodeId: null,
   focusNewNoteInput: false,

@@ -122,8 +122,14 @@ function compareBy(criterion, a, b, tasksById) {
   return 0;
 }
 
-export function sortRows(list, tasksById, primary = "padre") {
-  const sequence = [primary, ...ALL_SORT_CRITERIA.filter((c) => c !== primary)];
+// `secondaryDateField` ("execution_date" | "deadline" | null): sorting secondario scelto a
+// mano dall'utente (bottoni EX/DL nella vista calendario di FOGLIE), applicato a tutti gli
+// status subito dopo il criterio primario, prima degli altri tie-break di default
+export function sortRows(list, tasksById, primary = "padre", secondaryDateField = null) {
+  let sequence = [primary, ...ALL_SORT_CRITERIA.filter((c) => c !== primary)];
+  if (secondaryDateField && secondaryDateField !== primary) {
+    sequence = [primary, secondaryDateField, ...sequence.slice(1).filter((c) => c !== secondaryDateField)];
+  }
   return [...list].sort((a, b) => {
     for (const criterion of sequence) {
       const cmp = compareBy(criterion, a, b, tasksById);

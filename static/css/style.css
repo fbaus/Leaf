@@ -409,6 +409,12 @@ th, td {
   border-bottom: 1px solid #ddd;
 }
 
+.calendar-date-sort-group {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
 .calendar-scroll {
   flex: 1;
   overflow-x: auto;
