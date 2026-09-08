@@ -107,8 +107,8 @@ def enforce_open_task_rules(fields, execution_date, deadline, assegnato, depende
     if deadline is not None and execution_date is None:
         execution_date = date.today().isoformat()
         fields["execution_date"] = execution_date
-    if execution_date is not None and deadline is not None and deadline <= execution_date:
-        raise ValueError("La deadline deve essere successiva alla data di esecuzione")
+    if execution_date is not None and deadline is not None and deadline < execution_date:
+        raise ValueError("La deadline non può essere precedente alla data di esecuzione")
     if assegnato and (execution_date is None or deadline is None):
         raise ValueError("Per assegnare il task servono prima data di esecuzione e deadline")
     return execution_date
@@ -902,8 +902,8 @@ def add_checklist_item(task_id):
         assegnato = validate_assegnato(data.get("assegnato"))
         execution_date = validate_date(data.get("execution_date"), "Data di esecuzione")
         deadline = validate_date(data.get("deadline"), "Deadline")
-        if execution_date and deadline and deadline <= execution_date:
-            raise ValueError("La deadline deve essere successiva alla data di esecuzione")
+        if execution_date and deadline and deadline < execution_date:
+            raise ValueError("La deadline non può essere precedente alla data di esecuzione")
     except ValueError as e:
         return {"error": str(e)}, 400
 
@@ -940,8 +940,8 @@ def update_checklist_item(item_id):
 
         execution_date = fields.get("execution_date", item["execution_date"])
         deadline = fields.get("deadline", item["deadline"])
-        if execution_date and deadline and deadline <= execution_date:
-            raise ValueError("La deadline deve essere successiva alla data di esecuzione")
+        if execution_date and deadline and deadline < execution_date:
+            raise ValueError("La deadline non può essere precedente alla data di esecuzione")
     except ValueError as e:
         return {"error": str(e)}, 400
 

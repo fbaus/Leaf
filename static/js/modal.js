@@ -91,7 +91,7 @@ function applyOpenTaskRules() {
 
   let invalid = false;
   if (ex && !dl) invalid = true;
-  if (ex && dl && dl <= ex) invalid = true;
+  if (ex && dl && dl < ex) invalid = true;
 
   fieldDeadlineLabel.classList.toggle("field-warning", invalid);
   modalSubmit.disabled = invalid;

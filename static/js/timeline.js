@@ -276,11 +276,11 @@ export function attachBarHandleDrag(handle, edge, node, buckets, totalWidth, inn
       const x = Math.min(Math.max(moveEvent.clientX - innerLeft, 0), totalWidth - 1);
       let newDate = xToDate(buckets, x);
       if (edge === "left") {
-        const maxDate = addDays(deadlineDate, -1);
-        if (newDate > maxDate) newDate = maxDate;
+        // la data di esecuzione può arrivare fino a coincidere con la deadline (mai oltre)
+        if (newDate > deadlineDate) newDate = deadlineDate;
       } else {
-        const minDate = addDays(execDate, 1);
-        if (newDate < minDate) newDate = minDate;
+        // la deadline può arrivare fino a coincidere con la data di esecuzione (mai prima)
+        if (newDate < execDate) newDate = execDate;
       }
       currentDate = newDate;
 
