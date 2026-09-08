@@ -13,7 +13,9 @@ export const STATUS_META = {
   10: { symbol: "✖", color: "#424242", label: "Interrotto" },
 };
 
-export const STATUS_ORDER = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+// DIPENDENTE (5) prima di PIANIFICATO (4): solo il rango d'ordinamento, non l'ID di
+// status né colore/simbolo/etichetta (che restano in STATUS_META, legati al numero)
+export const STATUS_ORDER = [1, 2, 3, 5, 4, 6, 7, 8, 9, 10];
 
 export const CLOSED_STATUSES = new Set([8, 9, 10]);
 
