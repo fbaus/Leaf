@@ -364,7 +364,10 @@ th, td {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  margin-bottom: 8px;
+  /* spazio sufficiente perché, a calendario aperto, la sua toolbar (30px) e l'eventuale
+     fascia superiore settimane/mesi/anni (20px, vedi SUPER_HEADER_HEIGHT in
+     render_calendar.js) restino sopra la <table> senza finire sotto/sopra questa barra */
+  margin-bottom: 26px;
 }
 
 .filter-group-btn {
@@ -490,6 +493,26 @@ th, td {
 
 .calendar-bucket-header.weekend {
   background: #e4e4e4;
+}
+
+/* cella di gruppo della fascia superiore (settimane/mesi/anni), condivisa fra calendario
+   FOGLIE e Gantt: riusa lo stesso .calendar-bucket-header per la riga normale sotto, ma
+   qui serve una singola riga di testo invece delle due righe impilate */
+.super-header-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 100%;
+  font-size: 11px;
+  font-weight: bold;
+  color: #555;
+  background: #f5f5f5;
+  border-right: 1px solid #ddd;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
 }
 
 .calendar-weekend-band {
@@ -1135,6 +1158,28 @@ th, td {
   display: flex;
   flex-direction: column;
   border-right: 1px solid #ccc;
+}
+
+/* fascia opzionale sopra l'intestazione normale (settimane/mesi/anni raggruppati, vedi
+   buildSuperHeaderGroups in timeline.js): stessa altezza fissa su entrambi i pannelli
+   (outline e timeline) così le due colonne restano allineate verticalmente anche quando
+   la fascia è nascosta (SUPER_HEADER_HEIGHT collassata a 0, vista "Globale") */
+#gantt-outline-super-header {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  border-bottom: 1px solid #ddd;
+}
+
+#gantt-timeline-super-header-scroll {
+  flex-shrink: 0;
+  overflow: hidden;
+  border-bottom: 1px solid #ddd;
+  box-sizing: border-box;
+}
+
+#gantt-timeline-super-header {
+  white-space: nowrap;
+  height: 100%;
 }
 
 #gantt-outline-header {

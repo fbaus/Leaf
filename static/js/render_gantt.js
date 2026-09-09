@@ -15,6 +15,7 @@ import {
   GRANULARITIES,
   DRAGGABLE_GRANULARITIES,
   buildBuckets,
+  buildSuperHeaderGroups,
   bucketOffset,
   barRangeForNode,
   attachBarHandleDrag,
@@ -27,6 +28,7 @@ import {
 const SVG_NS = "http://www.w3.org/2000/svg";
 const ROW_HEIGHT = 28; // deve combaciare con .gantt-outline-row (style.css)
 const HEADER_HEIGHT = 40; // deve combaciare con #gantt-outline-header/#gantt-timeline-header-scroll
+const SUPER_HEADER_HEIGHT = 20; // fascia settimane/mesi/anni sopra l'intestazione normale, 0 se nascosta (vista "Globale")
 const DEP_ARROW_COLOR = "#ef6c00";
 const GANTT_BRANCH_COLOR = "#4fc3f7";
 // tratto diritto, della stessa lunghezza, sia subito dopo l'uscita dalla barra sorgente
@@ -44,6 +46,9 @@ const toolbarEl = document.getElementById("gantt-toolbar");
 const closeBtn = document.getElementById("gantt-close");
 const outlineScroll = document.getElementById("gantt-outline-scroll");
 const outlineBody = document.getElementById("gantt-outline-body");
+const outlineSuperHeader = document.getElementById("gantt-outline-super-header");
+const timelineSuperHeaderScroll = document.getElementById("gantt-timeline-super-header-scroll");
+const timelineSuperHeader = document.getElementById("gantt-timeline-super-header");
 const timelineHeaderScroll = document.getElementById("gantt-timeline-header-scroll");
 const timelineHeader = document.getElementById("gantt-timeline-header");
 const timelineScroll = document.getElementById("gantt-timeline-scroll");
@@ -106,6 +111,7 @@ export function refreshGanttIfOpen() {
 let syncingVerticalScroll = false;
 timelineScroll.addEventListener("scroll", () => {
   timelineHeaderScroll.scrollLeft = timelineScroll.scrollLeft;
+  timelineSuperHeaderScroll.scrollLeft = timelineScroll.scrollLeft;
   if (syncingVerticalScroll) return;
   syncingVerticalScroll = true;
   outlineScroll.scrollTop = timelineScroll.scrollTop;
@@ -293,6 +299,7 @@ function attachHandleDateTooltip(handle, getDateISO) {
 
 function drawTimeline(rows, visibleIds) {
   timelineHeader.innerHTML = "";
+  timelineSuperHeader.innerHTML = "";
   timelineInner.innerHTML = "";
 
   const buckets = buildBuckets(rows.map((r) => r.node), granularity);
@@ -303,6 +310,28 @@ function drawTimeline(rows, visibleIds) {
   timelineHeader.style.width = `${totalWidth}px`;
   timelineInner.style.width = `${totalWidth}px`;
   timelineInner.style.height = `${totalHeight}px`;
+
+  // fascia superiore (settimane/mesi/anni raggruppati): per "anno" (vista "Globale") non
+  // c'è raggruppamento, ma la fascia resta comunque presente (vuota, grigia) invece di
+  // collassare a 0 — così l'altezza non cambia cambiando granularità
+  const superGroups = buildSuperHeaderGroups(buckets, granularity);
+  outlineSuperHeader.style.height = `${SUPER_HEADER_HEIGHT}px`;
+  timelineSuperHeaderScroll.style.height = `${SUPER_HEADER_HEIGHT}px`;
+  timelineSuperHeader.style.width = `${totalWidth}px`;
+  if (superGroups.length > 0) {
+    superGroups.forEach((g) => {
+      const cell = document.createElement("div");
+      cell.className = "super-header-cell";
+      cell.style.width = `${g.width}px`;
+      cell.textContent = g.label;
+      timelineSuperHeader.appendChild(cell);
+    });
+  } else {
+    const filler = document.createElement("div");
+    filler.className = "super-header-cell";
+    filler.style.width = `${totalWidth}px`;
+    timelineSuperHeader.appendChild(filler);
+  }
 
   buckets.forEach((b) => {
     const cell = document.createElement("div");
@@ -509,4 +538,5 @@ function drawTimeline(rows, visibleIds) {
     hasScrolledToToday = true;
   }
   timelineHeaderScroll.scrollLeft = timelineScroll.scrollLeft;
+  timelineSuperHeaderScroll.scrollLeft = timelineScroll.scrollLeft;
 }

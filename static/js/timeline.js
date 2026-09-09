@@ -9,11 +9,15 @@ import { updateTask } from "./api.js";
 export const BUCKET_WIDTH = { giorno: 70, settimana: 100, mese: 120, anno: 140 };
 export const PADDING = { giorno: 7, settimana: 2, mese: 2, anno: 1 };
 
+// le `key` restano quelle originarie (usate ovunque nella logica di calcolo dei bucket:
+// buildBuckets, DRAGGABLE_GRANULARITIES, BUCKET_WIDTH, PADDING...); solo le etichette
+// mostrate all'utente sono scalate di un gradino, per lasciare libero il nome "Giorno"
+// a una futura vista oraria dedicata (non ancora implementata)
 export const GRANULARITIES = [
-  { key: "giorno", label: "Giorno" },
-  { key: "settimana", label: "Settimana" },
-  { key: "mese", label: "Mese" },
-  { key: "anno", label: "Anno" },
+  { key: "giorno", label: "Settimana" },
+  { key: "settimana", label: "Mese" },
+  { key: "mese", label: "Anno" },
+  { key: "anno", label: "Globale" },
 ];
 
 export const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -166,6 +170,94 @@ export function buildBuckets(nodes, granularity) {
     cursor = next;
   }
   return buckets;
+}
+
+// ---------------------------------------------------------------------------
+// Intestazione "superiore": raggruppa i bucket già costruiti in fasce più larghe
+// (settimane sopra ai giorni, mesi sopra alle settimane, anni sopra ai mesi) — condivisa
+// fra calendario FOGLIE e Gantt, che disegnano ciascuno la propria riga ma con gli stessi
+// gruppi/etichette.
+// ---------------------------------------------------------------------------
+
+// numero di settimana ISO 8601 (lunedì-domenica, la settimana 1 è quella che contiene il
+// primo giovedì dell'anno): l'anno ISO può differire da getFullYear() nei giorni di
+// passaggio fra dicembre e gennaio, per questo viene ricalcolato dal giovedì della settimana
+function isoWeekInfo(date) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayNum = (d.getDay() + 6) % 7; // lunedì=0 ... domenica=6
+  d.setDate(d.getDate() - dayNum + 3); // giovedì della stessa settimana ISO
+  const isoYear = d.getFullYear();
+  const jan4 = new Date(isoYear, 0, 4);
+  const jan4DayNum = (jan4.getDay() + 6) % 7;
+  const week1Monday = new Date(jan4.getFullYear(), jan4.getMonth(), jan4.getDate() - jan4DayNum);
+  const week = Math.round((d - week1Monday) / (7 * MS_PER_DAY)) + 1;
+  return { week, year: isoYear };
+}
+
+// il mese "dominante" di una settimana (lunedì `weekStart`): quello a cui appartiene la
+// maggioranza dei suoi 7 giorni. Con 7 giorni (dispari) spalmati su al massimo 2 mesi la
+// maggioranza esiste sempre, nessun pareggio possibile
+function dominantMonth(weekStart) {
+  const counts = new Map();
+  let bestKey = null;
+  let bestCount = -1;
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(weekStart, i);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    const count = (counts.get(key) || 0) + 1;
+    counts.set(key, count);
+    if (count > bestCount) {
+      bestCount = count;
+      bestKey = key;
+    }
+  }
+  const [year, month] = bestKey.split("-").map(Number);
+  return { year, month };
+}
+
+// costruisce i gruppi (etichetta + larghezza totale) per la riga di intestazione
+// superiore; [] se per questa granularità non è previsto un raggruppamento (oggi: "anno")
+export function buildSuperHeaderGroups(buckets, granularity) {
+  let keyOf, labelOf;
+  if (granularity === "giorno") {
+    keyOf = (b) => {
+      const { week, year } = isoWeekInfo(b.start);
+      return `${year}-W${week}`;
+    };
+    labelOf = (b) => {
+      const { week, year } = isoWeekInfo(b.start);
+      return `Week ${week} - ${year}`;
+    };
+  } else if (granularity === "settimana") {
+    keyOf = (b) => {
+      const { year, month } = dominantMonth(b.start);
+      return `${year}-${month}`;
+    };
+    labelOf = (b) => {
+      const { year, month } = dominantMonth(b.start);
+      return MONTH_YEAR_FMT.format(new Date(year, month, 1));
+    };
+  } else if (granularity === "mese") {
+    keyOf = (b) => b.start.getFullYear();
+    labelOf = (b) => String(b.start.getFullYear());
+  } else {
+    return [];
+  }
+
+  const groups = [];
+  let i = 0;
+  while (i < buckets.length) {
+    const key = keyOf(buckets[i]);
+    let width = 0;
+    let j = i;
+    while (j < buckets.length && keyOf(buckets[j]) === key) {
+      width += buckets[j].width;
+      j++;
+    }
+    groups.push({ label: labelOf(buckets[i]), width });
+    i = j;
+  }
+  return groups;
 }
 
 export function findBucketIndex(buckets, date) {

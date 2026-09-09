@@ -4,6 +4,7 @@ import {
   DRAGGABLE_GRANULARITIES,
   GRANULARITIES,
   buildBuckets,
+  buildSuperHeaderGroups,
   bucketOffset,
   barRangeForNode,
   attachBarHandleDrag,
@@ -15,6 +16,7 @@ import {
 
 const TOOLBAR_HEIGHT = 30; // deve combaciare con l'altezza fissata in .calendar-toolbar (style.css)
 const PROXY_HEIGHT = 14; // deve combaciare con .calendar-scrollbar-proxy (style.css)
+const SUPER_HEADER_HEIGHT = 20; // fascia settimane/mesi/anni sopra l'intestazione normale, 0 se nascosta (vista "Globale")
 
 // ---------------------------------------------------------------------------
 // Rendering
@@ -28,6 +30,17 @@ export function renderCalendarOverlay(mainPanel, leaves) {
   const buckets = buildBuckets(leaves, granularity);
   const totalWidth = buckets.reduce((sum, b) => sum + b.width, 0);
   const todayIndex = buckets.findIndex((b) => b.isToday);
+
+  // fascia superiore (settimane/mesi/anni raggruppati): per "anno" (vista "Globale") non
+  // c'è raggruppamento, ma la fascia resta comunque presente (vuota, grigia) invece di
+  // sparire — così l'altezza del calendario non cambia cambiando granularità. Aggiunge
+  // righe SOPRA a quella che finora era la cima di .calendar-inner (allineata alla cima
+  // della <table> reale, vedi overlay.style.top più sotto), quindi ogni elemento
+  // posizionato con top:0 relativo a .calendar-inner (bande weekend, linee griglia, linea
+  // "oggi", barre) deve scendere di superHeaderHeight per restare allineato com'era prima
+  // di questa fascia
+  const superGroups = buildSuperHeaderGroups(buckets, granularity);
+  const superHeaderHeight = SUPER_HEADER_HEIGHT;
 
   const tableRect = table.getBoundingClientRect();
   const theadHeight = table.tHead.getBoundingClientRect().height;
@@ -52,8 +65,8 @@ export function renderCalendarOverlay(mainPanel, leaves) {
   // (sopra c'è la barra filtri): senza questo, la toolbar del calendario (altezza fissa)
   // non combacia con l'altezza reale della barra filtri e .calendar-inner finisce
   // disallineato rispetto alle righe della tabella di qualche pixel
-  overlay.style.top = `${tableRect.top - mainPanelRect.top - TOOLBAR_HEIGHT}px`;
-  overlay.style.height = `${tableHeight + TOOLBAR_HEIGHT + PROXY_HEIGHT}px`;
+  overlay.style.top = `${tableRect.top - mainPanelRect.top - TOOLBAR_HEIGHT - superHeaderHeight}px`;
+  overlay.style.height = `${tableHeight + TOOLBAR_HEIGHT + PROXY_HEIGHT + superHeaderHeight}px`;
 
   const resizeHandle = document.createElement("div");
   resizeHandle.className = "calendar-resize-handle";
@@ -120,6 +133,27 @@ export function renderCalendarOverlay(mainPanel, leaves) {
   inner.className = "calendar-inner";
   inner.style.width = `${totalWidth}px`;
 
+  const superHeaderRow = document.createElement("div");
+  superHeaderRow.className = "calendar-header-row";
+  superHeaderRow.style.height = `${superHeaderHeight}px`;
+  if (superGroups.length > 0) {
+    superGroups.forEach((g) => {
+      const cell = document.createElement("div");
+      cell.className = "super-header-cell";
+      cell.style.width = `${g.width}px`;
+      cell.textContent = g.label;
+      superHeaderRow.appendChild(cell);
+    });
+  } else {
+    // "anno" (vista "Globale"): nessun raggruppamento sopra gli anni stessi, ma la fascia
+    // resta come banda grigia vuota invece di sparire, a parità di altezza con le altre viste
+    const filler = document.createElement("div");
+    filler.className = "super-header-cell";
+    filler.style.width = `${totalWidth}px`;
+    superHeaderRow.appendChild(filler);
+  }
+  inner.appendChild(superHeaderRow);
+
   const headerRow = document.createElement("div");
   headerRow.className = "calendar-header-row";
   headerRow.style.height = `${theadHeight}px`;
@@ -145,6 +179,7 @@ export function renderCalendarOverlay(mainPanel, leaves) {
     const band = document.createElement("div");
     band.className = "calendar-weekend-band";
     band.style.left = `${bucketOffset(buckets, i)}px`;
+    band.style.top = `${superHeaderHeight}px`;
     band.style.width = `${b.width}px`;
     band.style.height = `${tableHeight}px`;
     inner.appendChild(band);
@@ -156,6 +191,7 @@ export function renderCalendarOverlay(mainPanel, leaves) {
     const line = document.createElement("div");
     line.className = "calendar-grid-line";
     line.style.left = `${bucketOffset(buckets, i) + b.width}px`;
+    line.style.top = `${superHeaderHeight}px`;
     line.style.height = `${tableHeight}px`;
     inner.appendChild(line);
   });
@@ -164,6 +200,7 @@ export function renderCalendarOverlay(mainPanel, leaves) {
     const todayLine = document.createElement("div");
     todayLine.className = "calendar-today-line";
     todayLine.style.left = `${bucketOffset(buckets, todayIndex)}px`;
+    todayLine.style.top = `${superHeaderHeight}px`;
     todayLine.style.height = `${tableHeight}px`;
     inner.appendChild(todayLine);
   }
@@ -186,7 +223,7 @@ export function renderCalendarOverlay(mainPanel, leaves) {
     bar.style.background = meta ? meta.color : "#999";
     bar.style.left = `${range.left + 1}px`;
     bar.style.width = `${Math.max(range.width - 2, 4)}px`;
-    bar.style.top = `${top + height * 0.3}px`;
+    bar.style.top = `${top + height * 0.3 + superHeaderHeight}px`;
     bar.style.height = `${height * 0.4}px`;
     bar.title = node.title;
 
