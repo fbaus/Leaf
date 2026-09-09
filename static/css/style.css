@@ -398,6 +398,21 @@ th, td {
   margin: 4px 0;
 }
 
+.root-checklist-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.root-checklist-actions button {
+  padding: 3px 8px;
+  border: 1px solid #ccc;
+  background: #f5f5f5;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 /* ---------- calendario (overlay sopra la tabella FOGLIE) ---------- */
 
 .calendar-overlay {

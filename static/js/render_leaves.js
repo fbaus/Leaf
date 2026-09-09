@@ -217,6 +217,26 @@ function renderChecklist(sidePanel) {
   heading.textContent = "Progetti";
   box.appendChild(heading);
 
+  const actions = document.createElement("div");
+  actions.className = "root-checklist-actions";
+  const selectAllBtn = document.createElement("button");
+  selectAllBtn.textContent = "Seleziona tutti";
+  selectAllBtn.onclick = () => {
+    // null = nessun filtro, coerente col comportamento di default (include anche i
+    // progetti creati in seguito, a differenza di un Set con gli id attuali)
+    state.leafFilters.rootIds = null;
+    rerender();
+  };
+  const deselectAllBtn = document.createElement("button");
+  deselectAllBtn.textContent = "Deseleziona tutti";
+  deselectAllBtn.onclick = () => {
+    state.leafFilters.rootIds = new Set();
+    rerender();
+  };
+  actions.appendChild(selectAllBtn);
+  actions.appendChild(deselectAllBtn);
+  box.appendChild(actions);
+
   getRootNodes(state.tasks).forEach((root) => {
     const label = document.createElement("label");
     const checkbox = document.createElement("input");
