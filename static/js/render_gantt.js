@@ -9,6 +9,8 @@ import { state, reload } from "./state.js";
 import { STATUS_META, isLeaf, dateSortKey } from "./utils.js";
 import { openEditModal } from "./modal.js";
 import { recomputeRollup } from "./api.js";
+import { setDependencyHighlight } from "./deps_highlight.js";
+import { jumpToTree } from "./navigate.js";
 import {
   GRANULARITIES,
   DRAGGABLE_GRANULARITIES,
@@ -233,10 +235,15 @@ function drawOutline(rows, visibleIds) {
         .map((id) => state.tasks.find((t) => t.id === id))
         .filter(Boolean)
         .map((t) => t.title);
-      const badge = document.createElement("span");
+      const badge = document.createElement("button");
       badge.className = "gantt-row-dep-badge";
       badge.textContent = "🔗";
-      badge.title = `Dipende anche da (fuori vista): ${names.join(", ")}`;
+      badge.title = `Dipende anche da un altro progetto: ${names.join(", ")}`;
+      badge.onclick = () => {
+        setDependencyHighlight(node);
+        closeGantt();
+        jumpToTree(externalDeps[0]);
+      };
       rowEl.appendChild(badge);
     }
 

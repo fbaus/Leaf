@@ -313,6 +313,31 @@ th, td {
   border-color: #f9a825;
 }
 
+/* tiene il bottone "Dipendenze" e il badge ramo sulla stessa riga, così la riga della
+   tabella resta alta quanto le altre invece di andare a capo nella colonna stretta */
+.leaf-deps-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.deps-branch-badge {
+  flex-shrink: 0;
+  padding: 2px 5px;
+  border: 1px solid #de6be2;
+  border-radius: 10px;
+  background: none;
+  color: #de6be2;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.deps-branch-badge:hover {
+  background: #fbeafc;
+}
+
 .deadline-warning-badge {
   font-size: 16px;
   font-weight: bold;
@@ -1172,10 +1197,13 @@ th, td {
 }
 
 .gantt-row-dep-badge {
+  border: none;
+  background: none;
+  padding: 0;
   font-size: 11px;
   color: #963CE8;
   flex-shrink: 0;
-  cursor: default;
+  cursor: pointer;
 }
 
 #gantt-timeline-pane {

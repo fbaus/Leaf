@@ -16,7 +16,7 @@ import {
 import { setFocus } from "./api.js";
 import { openEditModal } from "./modal.js";
 import { jumpToTree } from "./navigate.js";
-import { toggleDependencyHighlight } from "./deps_highlight.js";
+import { toggleDependencyHighlight, setDependencyHighlight } from "./deps_highlight.js";
 import { renderCalendarOverlay } from "./render_calendar.js";
 import { showContextMenu } from "./context_menu.js";
 
@@ -155,6 +155,7 @@ function renderTable(mainPanel, tasksById) {
     tr.appendChild(tdDesc);
 
     const tdDeps = document.createElement("td");
+    tdDeps.className = "leaf-deps-cell";
     const depCount = (node.dependency_ids || []).length;
     if (depCount > 0) {
       const depsBtn = document.createElement("button");
@@ -163,6 +164,27 @@ function renderTable(mainPanel, tasksById) {
       depsBtn.textContent = `Dipendenze (${depCount})`;
       depsBtn.onclick = () => toggleDependencyHighlight(node);
       tdDeps.appendChild(depsBtn);
+
+      // FOGLIE mostra solo foglie: una dipendenza verso un ramo non troverà mai una riga
+      // qui su cui accendersi. Il bottone sopra da solo sembrerebbe non fare nulla in quel
+      // caso — un'indicazione cliccabile che porta dritti nell'albero (dove il ramo è
+      // sempre visibile) evita quell'effetto "bottone rotto"
+      const branchDeps = (node.dependency_ids || [])
+        .map((id) => tasksById[id])
+        .filter((dep) => dep && !isLeaf(dep));
+      if (branchDeps.length > 0) {
+        const branchBadge = document.createElement("button");
+        branchBadge.className = "deps-branch-badge";
+        branchBadge.textContent = "🔗";
+        branchBadge.title = `Dipende anche da un ramo, visibile solo nell'albero: ${branchDeps
+          .map((d) => d.title)
+          .join(", ")}`;
+        branchBadge.onclick = () => {
+          setDependencyHighlight(node);
+          jumpToTree(branchDeps[0].id);
+        };
+        tdDeps.appendChild(branchBadge);
+      }
     }
     tr.appendChild(tdDeps);
 

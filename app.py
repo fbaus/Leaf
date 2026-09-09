@@ -1,5 +1,5 @@
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from flask import Flask, jsonify, request, render_template, send_file
 from database import query_db, query_one, execute_db, execute_transaction
@@ -987,6 +987,24 @@ def convert_all_checklist_items(task_id):
             assegnato = validate_assegnato(item["assegnato"])
             execution_date = item["execution_date"]
             deadline = item["deadline"]
+
+            # una foglia appena nata dalla checklist ha sempre le sue date: se mancano si
+            # parte da oggi, e la deadline (se assente) segue di una settimana la data di
+            # esecuzione così risolta — mai calcolata da "oggi" per conto suo, altrimenti
+            # una deadline già impostata nel passato (item con solo la DL, niente EX)
+            # romperebbe comunque il vincolo DL >= EX una volta autoriempita l'esecuzione
+            # con la data odierna. Vale per ogni riga, completata o no: il nodo padre
+            # eredita il rollup da tutti i nuovi figli, non solo da quelli ancora aperti.
+            if execution_date is None:
+                execution_date = date.today().isoformat()
+            if deadline is None:
+                deadline = (date.fromisoformat(execution_date) + timedelta(days=7)).isoformat()
+            elif deadline < execution_date:
+                # la deadline esisteva già (magari nel passato) e l'esecuzione è stata
+                # appena riempita con oggi: si allinea l'esecuzione alla deadline già
+                # impostata (mai il contrario, per non alterare una scadenza scelta
+                # dall'utente) — ora lecito, dato che il vincolo è DL >= EX
+                execution_date = deadline
 
             fields = {}
             if item["completed"]:
