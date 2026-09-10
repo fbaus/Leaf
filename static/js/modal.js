@@ -69,15 +69,19 @@ function getDescendantIds(nodeId) {
 }
 
 function updateDependenciesSummary() {
+  dependenciesSummary.innerHTML = "";
   if (selectedDependencyIds.size === 0) {
     dependenciesSummary.textContent = "Nessuna";
     return;
   }
-  const titles = [...selectedDependencyIds].map((id) => {
+  // una riga per dipendenza (non un elenco separato da virgole): il riquadro cresce verso
+  // il basso e oltre la sua altezza massima scorre, invece di troncare con l'ellissi
+  [...selectedDependencyIds].forEach((id) => {
     const t = state.tasks.find((x) => x.id === id);
-    return t ? t.title : `#${id}`;
+    const line = document.createElement("div");
+    line.textContent = t ? t.title : `#${id}`;
+    dependenciesSummary.appendChild(line);
   });
-  dependenciesSummary.textContent = titles.join(", ");
 }
 
 // ---------------------------------------------------------------------------
@@ -161,14 +165,32 @@ function getAncestorIds(nodeId) {
   return ids;
 }
 
-function collectAllBranchIds(nodes, ids = new Set()) {
-  nodes.forEach((n) => {
-    if (n.children.length > 0) {
-      ids.add(n.id);
-      collectAllBranchIds(n.children, ids);
-    }
+// nodo stesso + tutti i discendenti che a loro volta hanno figli (stessa logica del
+// bottone ⊕/⊖ "espandi/collassa tutti i discendenti" già in vista Albero)
+function collectSubtreeBranchIds(node) {
+  if (node.children.length === 0) return [];
+  const ids = [node.id];
+  node.children.forEach((child) => {
+    ids.push(...collectSubtreeBranchIds(child));
   });
   return ids;
+}
+
+function pickerBranchToggleAllButton(node) {
+  const branchIds = collectSubtreeBranchIds(node);
+  const allExpanded = branchIds.every((id) => pickerExpandedIds.has(id));
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "branch-toggle-btn";
+  btn.textContent = allExpanded ? "⊖" : "⊕";
+  btn.title = allExpanded ? "Collassa tutti i discendenti" : "Espandi tutti i discendenti";
+  btn.onclick = () => {
+    if (allExpanded) branchIds.forEach((id) => pickerExpandedIds.delete(id));
+    else branchIds.forEach((id) => pickerExpandedIds.add(id));
+    renderPickerTree();
+  };
+  return btn;
 }
 
 let currentPickerExcludedIds = new Set();
@@ -192,6 +214,7 @@ function renderPickerNode(node, excludedIds, container) {
       renderPickerTree();
     };
     row.appendChild(toggle);
+    row.appendChild(pickerBranchToggleAllButton(node));
   } else {
     const spacer = document.createElement("span");
     spacer.className = "picker-toggle-spacer";
@@ -234,8 +257,9 @@ function openDependencyPicker() {
   currentPickerExcludedIds = new Set(
     editingId === null ? [] : [editingId, ...getDescendantIds(editingId), ...getAncestorIds(editingId)]
   );
-  // tutto espanso di default (stessa visibilità di prima), collassabile a piacere
-  pickerExpandedIds = collectAllBranchIds(buildTree(state.tasks));
+  // tutto collassato all'apertura, espandibile a piacere (anche tutto insieme, per
+  // ramo, col bottone ⊕/⊖)
+  pickerExpandedIds = new Set();
 
   renderPickerTree();
   pickerOverlay.classList.remove("hidden");
