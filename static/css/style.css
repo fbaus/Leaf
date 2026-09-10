@@ -178,7 +178,8 @@ li {
   background: #FFFFD1;
 }
 
-.tree-row.row-expired {
+.tree-row.row-expired,
+.leaf-title-cell.row-expired {
   background: #FFAFCF;
 }
 

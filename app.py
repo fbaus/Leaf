@@ -32,6 +32,16 @@ EXPIRED_SQL = """
             THEN 1 ELSE 0 END AS expired
 """
 
+# preavviso: 7 giorni prima della deadline, stesso ambito di validità di EXPIRED_SQL (solo
+# APERTI). Non esclude l'intervallo già scaduto (Data >= DL): il frontend dà priorità al
+# badge di scadenza vera e propria quando entrambi risulterebbero veri.
+DEADLINE_APPROACHING_SQL = """
+       CASE WHEN t.deadline IS NOT NULL
+                 AND date('now', 'localtime') >= date(t.deadline, '-7 days')
+                 AND t.label = 'APERTO'
+            THEN 1 ELSE 0 END AS deadline_approaching
+"""
+
 
 @app.route("/")
 def index():
@@ -386,7 +396,8 @@ def get_tasks():
         f"""
         SELECT t.*,
                (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = t.id) AS children_count,
-               {EXPIRED_SQL}
+               {EXPIRED_SQL},
+               {DEADLINE_APPROACHING_SQL}
         FROM tasks t
         ORDER BY t.id
         """
@@ -419,6 +430,23 @@ def get_tasks():
             )
             t["status"] = computed_status
             t["escalation"] = escalated and not t["escalation_seen"]
+
+    # propaga "expired" verso l'alto (padre, nonno, ... fino alla radice): un ramo non è mai
+    # "expired" di suo (la sua deadline è il rollup MAX dei figli, quindi in genere non ancora
+    # raggiunta anche quando un figlio più urgente lo è già), ma deve comunque segnalare la
+    # presenza di una foglia scaduta al suo interno senza dover essere espanso
+    for t in tasks:
+        t["expired_descendant"] = False
+    for t in tasks:
+        if not t["expired"]:
+            continue
+        pid = t["parent_id"]
+        while pid is not None:
+            parent = tasks_by_id.get(pid)
+            if parent is None or parent["expired_descendant"]:
+                break
+            parent["expired_descendant"] = True
+            pid = parent["parent_id"]
 
     return jsonify(tasks)
 

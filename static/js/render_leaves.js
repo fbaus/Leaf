@@ -129,11 +129,17 @@ function renderTable(mainPanel, tasksById) {
     tr.appendChild(tdParent);
 
     const tdTitle = document.createElement("td");
-    tdTitle.textContent = node.title;
+    tdTitle.append(node.title);
     tdTitle.className = "leaf-title-cell";
     tdTitle.classList.toggle("urgent-node", !!node.urgent);
+    tdTitle.classList.toggle("row-expired", !!node.expired);
     tdTitle.title = "Vai nell'albero";
     tdTitle.onclick = () => jumpToTree(node.id);
+    // il rosso (scaduto) prevale sul giallo (preavviso 7gg) se coincidono, come nell'albero
+    if (node.expired) tdTitle.appendChild(makeBadge("⏰", "Deadline superata"));
+    else if (node.deadline_approaching) {
+      tdTitle.appendChild(makeBadge("⚠️", "Deadline entro 7 giorni", "#f9a825", "deadline-warning-badge"));
+    }
     tr.appendChild(tdTitle);
 
     const tdStatus = document.createElement("td");
@@ -197,7 +203,6 @@ function renderTable(mainPanel, tasksById) {
 
     const tdDeadline = document.createElement("td");
     tdDeadline.append(node.deadline || "—");
-    if (node.expired) tdDeadline.appendChild(makeBadge("⚠", "Deadline superata", "#f9a825", "deadline-warning-badge"));
     tr.appendChild(tdDeadline);
 
     if (state.highlightedDepsIds.has(node.id)) tr.classList.add("row-dep-highlight");

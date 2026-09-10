@@ -246,6 +246,9 @@ function renderNode(node, searchText) {
   row.appendChild(extraBadges(node));
   if (node.expired) row.appendChild(makeBadge("⏰", "Deadline superata"));
   else if (node.escalation) row.appendChild(makeBadge("📅", "Data di esecuzione raggiunta: era delegato"));
+  // un ramo non è mai "expired" di suo (vedi expired_descendant in app.py): il badge segnala
+  // solo la presenza, in profondità, di una foglia scaduta senza dover espandere il ramo
+  else if (node.expired_descendant) row.appendChild(makeBadge("⏰", "Contiene una sotto-attività con deadline superata"));
 
   row.addEventListener("contextmenu", (e) => {
     e.preventDefault();
