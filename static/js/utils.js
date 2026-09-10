@@ -164,12 +164,6 @@ export function makeBadge(symbol, title, color, className = "extra-badge") {
   return span;
 }
 
-export function extraBadges(node) {
-  const frag = document.createDocumentFragment();
-  if (node.urgent) frag.appendChild(makeBadge("❗", "Urgente"));
-  return frag;
-}
-
 export function escapeHtml(text) {
   const div = document.createElement("div");
   div.textContent = text ?? "";

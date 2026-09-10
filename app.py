@@ -129,9 +129,10 @@ def compute_open_status(execution_date, deadline, assegnato, dep_statuses, today
     sono valori già memorizzati (uno stato 'risolvente' è sempre 9/10, scritto a mano
     su un task CHIUSO, mai un valore da ricalcolare a sua volta).
 
-    Con dipendenze non risolte, queste hanno priorità sull'assegnatario: finché non si
-    sbloccano, il task resta DIPENDENTE (o BLOCCATO oltre la deadline) anche se assegnato
-    a qualcuno, senza passare per PIANIFICATO/DELEGATO."""
+    L'assegnatario ha priorità sulle dipendenze non risolte: un task assegnato segue
+    sempre il binario DELEGATO/IN RITARDO in base alla sola deadline (come se non avesse
+    dipendenze), anche con dipendenze ancora aperte — CH5 e CH6 della tabella dei casi
+    producono lo stesso status."""
     has_deps = bool(dep_statuses)
     deps_resolved = (
         has_deps
@@ -143,16 +144,15 @@ def compute_open_status(execution_date, deadline, assegnato, dep_statuses, today
     if execution_date is None:
         return (STATUS_DIPENDENTE if effective_dp else STATUS_IN_LISTA), False
 
+    if assegnato:
+        return (STATUS_IN_RITARDO if today >= deadline else STATUS_DELEGATO), False
+
     if effective_dp:
-        if assegnato:
-            return (STATUS_BLOCCATO if today >= deadline else STATUS_DIPENDENTE), False
         if today < execution_date:
             return STATUS_PIANIFICATO, False
         if today < deadline:
             return STATUS_DIPENDENTE, False
         return STATUS_BLOCCATO, False
-    if assegnato:
-        return (STATUS_IN_RITARDO if today >= deadline else STATUS_DELEGATO), False
     # task semplice, senza assegnatario né dipendenze attive: appena raggiunta
     # la data di esecuzione diventa ATTIVO ed è questa l'unica transizione
     # segnalata con l'escalation (calendario + riga gialla)
@@ -545,8 +545,6 @@ def update_task(task_id):
             fields["label"] = validate_label(data["label"])
         if "status" in data:
             fields["status"] = validate_status(data["status"])
-        if "urgent" in data:
-            fields["urgent"] = 1 if data["urgent"] else 0
     except ValueError as e:
         return {"error": str(e)}, 400
 

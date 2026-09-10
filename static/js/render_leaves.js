@@ -16,7 +16,7 @@ import {
 import { setFocus } from "./api.js";
 import { openEditModal } from "./modal.js";
 import { jumpToTree } from "./navigate.js";
-import { toggleDependencyHighlight, setDependencyHighlight } from "./deps_highlight.js";
+import { toggleDependencyHighlight } from "./deps_highlight.js";
 import { renderCalendarOverlay } from "./render_calendar.js";
 import { showContextMenu } from "./context_menu.js";
 
@@ -57,8 +57,8 @@ function renderFilterBar(mainPanel) {
 }
 
 // percentuali (sommano a 100):
-// progetto, titolo, status, assegnato, descrizione, dipendenze, esecuzione, deadline
-const COLUMN_WIDTHS = [13, 16, 6, 8, 31, 6, 10, 10];
+// progetto, titolo, status, assegnato, descrizione, esecuzione, deadline
+const COLUMN_WIDTHS = [13, 22, 6, 8, 31, 10, 10];
 
 function renderColgroup(table) {
   const colgroup = document.createElement("colgroup");
@@ -91,7 +91,6 @@ function renderTable(mainPanel, tasksById) {
   headRow.appendChild(sortableHeader(SORT_LABELS.status, "status", state.leafFilters.sortBy, onSort));
   headRow.appendChild(sortableHeader(SORT_LABELS.assegnato, "assegnato", state.leafFilters.sortBy, onSort));
   headRow.appendChild(document.createElement("th")).textContent = "Descrizione";
-  headRow.appendChild(document.createElement("th")); // Dipendenze: nessun header, come le azioni
   headRow.appendChild(
     sortableHeader(SORT_LABELS.execution_date, "execution_date", state.leafFilters.sortBy, onSort)
   );
@@ -129,17 +128,62 @@ function renderTable(mainPanel, tasksById) {
     tr.appendChild(tdParent);
 
     const tdTitle = document.createElement("td");
-    tdTitle.append(node.title);
     tdTitle.className = "leaf-title-cell";
-    tdTitle.classList.toggle("urgent-node", !!node.urgent);
     tdTitle.classList.toggle("row-expired", !!node.expired);
-    tdTitle.title = "Vai nell'albero";
-    tdTitle.onclick = () => jumpToTree(node.id);
+
+    // wrapper interno (non la cella stessa: display:flex su un <td> ne altera il
+    // comportamento come table-cell e disallinea il bordo inferiore di riga rispetto alle
+    // altre colonne) che allinea testo, badge scadenza e tag dipendenze sulla stessa riga
+    const titleRow = document.createElement("div");
+    titleRow.className = "leaf-title-row";
+    tdTitle.appendChild(titleRow);
+
+    const titleText = document.createElement("span");
+    titleText.className = "leaf-title-text";
+    titleText.textContent = node.title;
+    titleText.title = "Vai nell'albero";
+    titleText.onclick = () => jumpToTree(node.id);
+    titleRow.appendChild(titleText);
+
     // il rosso (scaduto) prevale sul giallo (preavviso 7gg) se coincidono, come nell'albero
-    if (node.expired) tdTitle.appendChild(makeBadge("⏰", "Deadline superata"));
+    if (node.expired) titleRow.appendChild(makeBadge("⏰", "Deadline superata"));
     else if (node.deadline_approaching) {
-      tdTitle.appendChild(makeBadge("⚠️", "Deadline entro 7 giorni", "#f9a825", "deadline-warning-badge"));
+      titleRow.appendChild(makeBadge("⚠️", "Deadline entro 7 giorni", "#f9a825", "deadline-warning-badge"));
     }
+
+    // due tag distinti, uno per tipo di dipendenza, entrambi accanto al titolo: quello
+    // verso foglie (rosa) accende/spegne l'evidenziazione delle righe dipendenti in questa
+    // stessa vista; quello verso rami (viola), subito alla sua destra, porta all'albero
+    // (unico posto dove un ramo è visibile)
+    const leafDeps = (node.dependency_ids || [])
+      .map((id) => tasksById[id])
+      .filter((dep) => dep && isLeaf(dep));
+    const branchDeps = (node.dependency_ids || [])
+      .map((id) => tasksById[id])
+      .filter((dep) => dep && !isLeaf(dep));
+
+    if (leafDeps.length > 0) {
+      const leafTag = document.createElement("button");
+      leafTag.className = "deps-branch-badge";
+      leafTag.textContent = "🔗";
+      leafTag.classList.toggle("active", state.highlightedDepsSourceId === node.id);
+      leafTag.title = `Dipendenze foglie:\n${leafDeps.map((d) => d.title).join("\n")}`;
+      leafTag.onclick = () => toggleDependencyHighlight(node);
+      titleRow.appendChild(leafTag);
+    }
+
+    if (branchDeps.length > 0) {
+      const branchTag = document.createElement("button");
+      branchTag.className = "deps-branch-badge deps-branch-badge-violet";
+      branchTag.textContent = "🔗";
+      branchTag.title = `Dipendenze rami:\n${branchDeps.map((d) => d.title).join("\n")}`;
+      // solo il salto all'albero, senza accendere l'evidenziazione gialla (che essendo
+      // stato globale resterebbe accesa anche tornando su questa vista) — l'evidenziazione
+      // "sei arrivato qui" nell'albero la dà comunque jumpToTree per conto suo
+      branchTag.onclick = () => jumpToTree(branchDeps[0].id);
+      titleRow.appendChild(branchTag);
+    }
+
     tr.appendChild(tdTitle);
 
     const tdStatus = document.createElement("td");
@@ -159,40 +203,6 @@ function renderTable(mainPanel, tasksById) {
     const tdDesc = document.createElement("td");
     tdDesc.textContent = truncate(node.description, 60);
     tr.appendChild(tdDesc);
-
-    const tdDeps = document.createElement("td");
-    tdDeps.className = "leaf-deps-cell";
-    const depCount = (node.dependency_ids || []).length;
-    if (depCount > 0) {
-      const depsBtn = document.createElement("button");
-      depsBtn.className = "deps-toggle-btn";
-      depsBtn.classList.toggle("active", state.highlightedDepsSourceId === node.id);
-      depsBtn.textContent = `Dipendenze (${depCount})`;
-      depsBtn.onclick = () => toggleDependencyHighlight(node);
-      tdDeps.appendChild(depsBtn);
-
-      // FOGLIE mostra solo foglie: una dipendenza verso un ramo non troverà mai una riga
-      // qui su cui accendersi. Il bottone sopra da solo sembrerebbe non fare nulla in quel
-      // caso — un'indicazione cliccabile che porta dritti nell'albero (dove il ramo è
-      // sempre visibile) evita quell'effetto "bottone rotto"
-      const branchDeps = (node.dependency_ids || [])
-        .map((id) => tasksById[id])
-        .filter((dep) => dep && !isLeaf(dep));
-      if (branchDeps.length > 0) {
-        const branchBadge = document.createElement("button");
-        branchBadge.className = "deps-branch-badge";
-        branchBadge.textContent = "🔗";
-        branchBadge.title = `Dipende anche da un ramo, visibile solo nell'albero: ${branchDeps
-          .map((d) => d.title)
-          .join(", ")}`;
-        branchBadge.onclick = () => {
-          setDependencyHighlight(node);
-          jumpToTree(branchDeps[0].id);
-        };
-        tdDeps.appendChild(branchBadge);
-      }
-    }
-    tr.appendChild(tdDeps);
 
     const tdExecutionDate = document.createElement("td");
     tdExecutionDate.append(node.execution_date || "—");

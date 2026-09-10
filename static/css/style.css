@@ -187,12 +187,6 @@ li {
   background: #FFFFD1;
 }
 
-.urgent-node {
-  background: #FFAFCF;
-  border-radius: 3px;
-  padding: 0 3px;
-}
-
 .tree-row[draggable="true"] {
   cursor: grab;
 }
@@ -279,6 +273,7 @@ li {
 
 .extra-badge {
   font-size: 12px;
+  flex-shrink: 0;
 }
 
 /* ---------- tables (foglie / nodi) ---------- */
@@ -305,22 +300,49 @@ th, td {
   text-decoration: underline;
 }
 
-.leaves-table tr.row-dep-highlight td {
-  background: #FFFFD1;
+/* nella tabella FOGLIE la cella ospita anche i tag dipendenze (stesso stile del badge
+   "ramo") accanto al titolo: qui il click "vai all'albero" e la sottolineatura al passaggio
+   del mouse valgono solo per il testo (.leaf-title-text), non per tutta la cella, altrimenti
+   passando sui tag si sottolineerebbe anche il titolo. Il selettore per tag-elemento (più
+   specifico della sola classe) lascia intatto l'altro uso di .leaf-title-cell, un semplice
+   <span> nel pannello note (render_notes.js) senza questa struttura interna */
+td.leaf-title-cell {
+  cursor: default;
 }
 
-.deps-toggle-btn.active {
-  background: #FFFFD1;
-  border-color: #f9a825;
+td.leaf-title-cell:hover {
+  text-decoration: none;
 }
 
-/* tiene il bottone "Dipendenze" e il badge ramo sulla stessa riga, così la riga della
-   tabella resta alta quanto le altre invece di andare a capo nella colonna stretta */
-.leaf-deps-cell {
+/* wrapper interno alla cella (non la cella stessa: display:flex direttamente su un <td> ne
+   cambia il display effettivo da table-cell, disallineando il bordo inferiore di riga
+   rispetto alle altre colonne) che allinea testo, badge scadenza e tag dipendenze */
+.leaf-title-row {
   display: flex;
   align-items: center;
   gap: 4px;
   white-space: nowrap;
+}
+
+.leaf-title-text {
+  cursor: pointer;
+  color: #1565c0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* niente flex-grow: i badge restano attaccati subito dopo il testo (un piccolo gap,
+     non spinti in fondo alla cella) — il testo si restringe (ellissi) solo se lo spazio
+     davvero manca, i badge invece mantengono la loro dimensione (flex-shrink:0) */
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.leaf-title-text:hover {
+  text-decoration: underline;
+}
+
+.leaves-table tr.row-dep-highlight td {
+  background: #FFFFD1;
 }
 
 .deps-branch-badge {
@@ -339,10 +361,29 @@ th, td {
   background: #fbeafc;
 }
 
+/* stato "acceso" del tag delle dipendenze-foglia (evidenzia le righe dipendenti), stessa
+   evidenziazione già usata per il vecchio bottone "Dipendenze" */
+.deps-branch-badge.active {
+  background: #FFFFD1;
+  border-color: #f9a825;
+}
+
+/* variante per il tag delle dipendenze-ramo, subito a destra di quello foglia: stesso
+   stile a pillola, ma viola invece che rosa per distinguerlo a colpo d'occhio */
+.deps-branch-badge-violet {
+  border-color: #7e57c2;
+  color: #7e57c2;
+}
+
+.deps-branch-badge-violet:hover {
+  background: #f1ecfa;
+}
+
 .deadline-warning-badge {
   font-size: 16px;
   font-weight: bold;
   margin-left: 4px;
+  flex-shrink: 0;
 }
 
 .sort-btn {

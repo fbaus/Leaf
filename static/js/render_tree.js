@@ -5,7 +5,6 @@ import {
   matchesSearch,
   STATUS_META,
   makeBadge,
-  extraBadges,
   escapeHtml,
 } from "./utils.js";
 import { deleteTask, setFocus, moveTask } from "./api.js";
@@ -235,7 +234,6 @@ function renderNode(node, searchText) {
   title.className = "node-title";
   title.title = "Clic sinistro: leggi le note. Clic destro: azioni sul nodo.";
   if (state.selectedNoteNodeId === node.id) title.classList.add("selected-node");
-  title.classList.toggle("urgent-node", !!node.urgent);
   title.textContent = node.title;
   title.onclick = () => {
     state.selectedNoteNodeId = node.id;
@@ -243,7 +241,6 @@ function renderNode(node, searchText) {
   };
   row.appendChild(title);
 
-  row.appendChild(extraBadges(node));
   if (node.expired) row.appendChild(makeBadge("⏰", "Deadline superata"));
   else if (node.escalation) row.appendChild(makeBadge("📅", "Data di esecuzione raggiunta: era delegato"));
   // un ramo non è mai "expired" di suo (vedi expired_descendant in app.py): il badge segnala

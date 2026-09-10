@@ -25,7 +25,6 @@ const dependenciesSummary = document.getElementById("dependencies-summary");
 const dependenciesPickerBtn = document.getElementById("dependencies-picker-btn");
 const fieldFocusWrapper = document.getElementById("field-focus-wrapper");
 const fieldFocus = document.getElementById("field-focus");
-const fieldUrgent = document.getElementById("field-urgent");
 const cancelBtn = document.getElementById("modal-cancel");
 const modalSubmit = document.getElementById("modal-submit");
 const checklistWrapper = document.getElementById("checklist-wrapper");
@@ -370,7 +369,6 @@ export async function openEditModal(node) {
   fieldDescription.value = fresh.description || "";
   fieldDeadline.value = fresh.deadline || "";
   fieldExecutionDate.value = fresh.execution_date || "";
-  fieldUrgent.checked = !!fresh.urgent;
   updateDependenciesSummary();
   fieldFocusWrapper.classList.remove("hidden");
 
@@ -390,7 +388,6 @@ async function submitForm() {
   const payload = {
     title: fieldTitle.value.trim(),
     description: fieldDescription.value.trim() || null,
-    urgent: fieldUrgent.checked,
   };
 
   // le date di un ramo sono calcolate automaticamente dai figli: non fanno parte del
