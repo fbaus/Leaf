@@ -1232,6 +1232,10 @@ th, td {
   cursor: pointer;
 }
 
+.gantt-outline-row .branch-toggle-btn {
+  flex-shrink: 0;
+}
+
 .gantt-row-spacer {
   display: inline-block;
   width: 18px;

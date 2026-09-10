@@ -161,7 +161,7 @@ export function renderChecklist(container, taskId, onConverted) {
     const convertAllBtn = document.createElement("button");
     convertAllBtn.type = "button";
     convertAllBtn.className = "checklist-convert-all-btn";
-    convertAllBtn.textContent = "Trasforma tutto in nodi figli";
+    convertAllBtn.textContent = "Trasforma checklist in foglie";
     convertAllBtn.disabled = items.length === 0;
     convertAllBtn.onclick = async () => {
       const ok = await showConfirmDialog(

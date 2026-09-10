@@ -132,6 +132,33 @@ function byDeadlineAsc(a, b) {
   return dateSortKey(a.deadline).localeCompare(dateSortKey(b.deadline));
 }
 
+// nodo stesso + tutti i discendenti che a loro volta hanno figli (stessa logica di
+// collectExpandableIds nell'albero, riscritta sulla lista piatta state.tasks invece che su
+// un albero già costruito con .children)
+function collectExpandableIds(nodeId) {
+  const ids = [nodeId];
+  state.tasks
+    .filter((t) => t.parent_id === nodeId && t.children_count > 0)
+    .forEach((child) => ids.push(...collectExpandableIds(child.id)));
+  return ids;
+}
+
+function branchToggleAllButton(node) {
+  const branchIds = collectExpandableIds(node.id);
+  const allExpanded = branchIds.every((id) => expandedIds.has(id));
+
+  const btn = document.createElement("button");
+  btn.className = "branch-toggle-btn";
+  btn.textContent = allExpanded ? "⊖" : "⊕";
+  btn.title = allExpanded ? "Collassa tutti i discendenti" : "Espandi tutti i discendenti";
+  btn.onclick = () => {
+    if (allExpanded) branchIds.forEach((id) => expandedIds.delete(id));
+    else branchIds.forEach((id) => expandedIds.add(id));
+    draw();
+  };
+  return btn;
+}
+
 function buildVisibleRows() {
   const rows = [];
   function walk(parentId, depth) {
@@ -183,6 +210,27 @@ function drawToolbar() {
     };
     toolbarEl.appendChild(btn);
   });
+
+  // espandi/collassa tutto il sottoalbero del nodo radice di questo Gantt (non solo i
+  // singoli rami, come il bottone ⊕/⊖ per riga): stessa coppia di azioni già presente
+  // sopra l'albero in vista Albero
+  const expandAllBtn = document.createElement("button");
+  expandAllBtn.className = "filter-group-btn";
+  expandAllBtn.textContent = "Espandi tutto";
+  expandAllBtn.onclick = () => {
+    expandedIds = new Set(collectExpandableIds(rootId));
+    draw();
+  };
+  toolbarEl.appendChild(expandAllBtn);
+
+  const collapseAllBtn = document.createElement("button");
+  collapseAllBtn.className = "filter-group-btn";
+  collapseAllBtn.textContent = "Collassa tutto";
+  collapseAllBtn.onclick = () => {
+    expandedIds.clear();
+    draw();
+  };
+  toolbarEl.appendChild(collapseAllBtn);
 }
 
 function drawOutline(rows, visibleIds) {
@@ -212,6 +260,7 @@ function drawOutline(rows, visibleIds) {
         draw();
       };
       rowEl.appendChild(toggle);
+      rowEl.appendChild(branchToggleAllButton(node));
     } else {
       const spacer = document.createElement("span");
       spacer.className = "gantt-row-spacer";
