@@ -47,10 +47,11 @@ export function renderCalendarOverlay(mainPanel, leaves) {
   const theadHeight = table.tHead.getBoundingClientRect().height;
   const mainPanelRect = mainPanel.getBoundingClientRect();
   const mainPanelLeft = mainPanelRect.left;
-  // il bordo sinistro del calendario è trascinabile fra la fine della colonna Titolo
-  // e l'inizio della colonna Data di esecuzione
+  // il bordo sinistro del calendario è trascinabile fra la fine della colonna Titolo e la
+  // fine della colonna Descrizione: Data di esecuzione e Deadline restano sempre coperte
+  // dal calendario, mai scopribili trascinando verso destra
   const minLeft = table.tHead.rows[0].children[1].getBoundingClientRect().right - mainPanelLeft;
-  const maxLeft = table.tHead.rows[0].children[6].getBoundingClientRect().left - mainPanelLeft;
+  const maxLeft = table.tHead.rows[0].children[4].getBoundingClientRect().right - mainPanelLeft;
   const defaultLeft = table.tHead.rows[0].children[2].getBoundingClientRect().right - mainPanelLeft;
   const colOffset =
     state.calendarLeftOffset === null
@@ -195,6 +196,20 @@ export function renderCalendarOverlay(mainPanel, leaves) {
     line.style.top = `${superHeaderHeight}px`;
     line.style.height = `${tableHeight}px`;
     inner.appendChild(line);
+  });
+
+  // linee orizzontali di separazione fra le righe, stesso bordo della tabella FOGLIE
+  // (th, td { border-bottom: 1px solid #eee }): aiutano a capire a quale riga/task
+  // corrisponde ogni barra, specialmente scorrendo in orizzontale dove l'intestazione
+  // Titolo non è più visibile. Una per ogni riga reale (non solo quelle con una barra),
+  // stessa misurazione dal DOM usata sotto per le barre
+  bodyRows.forEach((tr) => {
+    const rowRect = tr.getBoundingClientRect();
+    const rowLine = document.createElement("div");
+    rowLine.className = "calendar-row-line";
+    rowLine.style.top = `${rowRect.bottom - tableRect.top + superHeaderHeight}px`;
+    rowLine.style.width = `${totalWidth}px`;
+    inner.appendChild(rowLine);
   });
 
   const todayOffset = todayLineOffset(buckets);

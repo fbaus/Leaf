@@ -578,6 +578,16 @@ td.leaf-title-cell:hover {
   pointer-events: none;
 }
 
+/* separatore orizzontale fra le righe, condiviso da calendario FOGLIE e Gantt: stesso
+   colore del border-bottom di th/td nella tabella FOGLIE (style.css riga ~296) */
+.calendar-row-line {
+  position: absolute;
+  left: 0;
+  height: 1px;
+  background: #eee;
+  pointer-events: none;
+}
+
 .calendar-bar {
   position: absolute;
   border-radius: 8px;

@@ -276,7 +276,11 @@ function renderChecklist(sidePanel) {
 export function renderLeaves(mainPanel, sidePanel) {
   const tasksById = byId(state.tasks);
   renderFilterBar(mainPanel);
+  // il pannello "Progetti" va popolato PRIMA della tabella: parte vuoto (display:none via
+  // CSS) e la sua larghezza reale (280px) si aggiunge solo una volta riempito, restringendo
+  // #main-panel — misurare le colonne della tabella (per il calendario) prima di questo
+  // punto le misurerebbe temporaneamente troppo larghe
+  renderChecklist(sidePanel);
   const leaves = renderTable(mainPanel, tasksById);
   if (state.calendarOpen) renderCalendarOverlay(mainPanel, leaves);
-  renderChecklist(sidePanel);
 }

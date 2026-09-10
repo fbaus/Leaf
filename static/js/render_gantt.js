@@ -417,6 +417,16 @@ function drawTimeline(rows, visibleIds) {
     timelineInner.appendChild(line);
   });
 
+  // linee orizzontali di separazione fra le righe, stesso bordo di .gantt-outline-row:
+  // aiutano a capire a quale riga/task corrisponde ogni barra
+  rows.forEach((row, i) => {
+    const rowLine = document.createElement("div");
+    rowLine.className = "calendar-row-line";
+    rowLine.style.top = `${(i + 1) * ROW_HEIGHT}px`;
+    rowLine.style.width = `${totalWidth}px`;
+    timelineInner.appendChild(rowLine);
+  });
+
   const todayOffset = todayLineOffset(buckets);
   if (todayOffset !== null) {
     const todayLine = document.createElement("div");
