@@ -6,6 +6,7 @@ import {
   buildBuckets,
   buildSuperHeaderGroups,
   bucketOffset,
+  todayLineOffset,
   barRangeForNode,
   attachBarHandleDrag,
   attachBarMoveDrag,
@@ -196,10 +197,11 @@ export function renderCalendarOverlay(mainPanel, leaves) {
     inner.appendChild(line);
   });
 
-  if (todayIndex >= 0) {
+  const todayOffset = todayLineOffset(buckets);
+  if (todayOffset !== null) {
     const todayLine = document.createElement("div");
     todayLine.className = "calendar-today-line";
-    todayLine.style.left = `${bucketOffset(buckets, todayIndex)}px`;
+    todayLine.style.left = `${todayOffset}px`;
     todayLine.style.top = `${superHeaderHeight}px`;
     todayLine.style.height = `${tableHeight}px`;
     inner.appendChild(todayLine);

@@ -276,6 +276,21 @@ export function bucketOffset(buckets, index) {
   return left;
 }
 
+// posizione continua (non a scatti sul bordo del bucket) della linea "oggi": proporzionale
+// al tempo reale già trascorso dall'inizio alla fine del suo bucket, qualunque sia la
+// durata di quest'ultimo (giorno/settimana/mese/anno, anche con mesi di lunghezza diversa).
+// Il rapporto in millisecondi dà automaticamente la granularità più fine possibile — ora
+// dentro un bucket-giorno, giorno dentro un bucket-settimana, settimana dentro un
+// bucket-mese, mese dentro un bucket-anno — senza dover gestire quelle sotto-unità a parte
+export function todayLineOffset(buckets) {
+  const idx = buckets.findIndex((b) => b.isToday);
+  if (idx < 0) return null;
+  const bucket = buckets[idx];
+  const now = new Date();
+  const fraction = (now - bucket.start) / (bucket.end - bucket.start);
+  return bucketOffset(buckets, idx) + fraction * bucket.width;
+}
+
 // posizione X (px, dentro il contenitore interno) del giorno `date`, sempre a precisione
 // di giorno anche dentro un bucket più largo (settimana/mese): la larghezza del bucket
 // viene divisa per il numero di giorni che contiene davvero (28-31 per un mese)
