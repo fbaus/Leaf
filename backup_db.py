@@ -12,7 +12,10 @@ from datetime import datetime
 from config import BASE_DIR, DB_PATH
 
 BACKUP_DIR = os.path.join(BASE_DIR, "backups")
-MAX_BACKUPS = 100
+# 2160 = 90 giorni a cadenza oraria. Col db attuale (~80KB) sono pochi MB totali: a questa
+# scala lo spazio su disco è trascurabile, il numero conta solo per la finestra di sicurezza
+# (90 giorni prima che i backup più vecchi vengano sovrascritti)
+MAX_BACKUPS = 2160
 
 
 def create_backup():
