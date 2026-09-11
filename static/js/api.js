@@ -97,3 +97,19 @@ export function deleteChecklistItem(itemId) {
 export function convertAllChecklistItems(taskId) {
   return postJson(`/tasks/${taskId}/checklist/convert-all`, "POST", {});
 }
+
+export function fetchPlanningBlocks() {
+  return fetch("/planning").then(handle);
+}
+
+export function createPlanningBlock(payload) {
+  return postJson("/planning", "POST", payload);
+}
+
+export function updatePlanningBlock(blockId, payload) {
+  return postJson(`/planning/${blockId}`, "PUT", payload);
+}
+
+export function deletePlanningBlock(blockId) {
+  return fetch(`/planning/${blockId}`, { method: "DELETE" }).then(handle);
+}

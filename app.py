@@ -68,6 +68,14 @@ def validate_checklist_description(description):
     return description
 
 
+def validate_minutes(value, field_name):
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{field_name} deve essere un numero di minuti")
+    if value < 0 or value > 1440:
+        raise ValueError(f"{field_name} deve essere fra 0 e 1440")
+    return value
+
+
 def validate_description(description):
     if description is None:
         return None
@@ -1071,6 +1079,91 @@ def convert_all_checklist_items(task_id):
     cleanup_resolved_dependencies(task_id)
 
     return {"status": "ok", "converted": len(items)}, 201
+
+
+# ---------------------------------------------------------------------------
+# Pianificazione oraria (lavagna usa-e-getta a blocchi di 15 minuti, scorrelata
+# da status/EX/DL: solo un riferimento leggero per la giornata, mai uno storico)
+# ---------------------------------------------------------------------------
+
+@app.route("/planning", methods=["GET"])
+def get_planning_blocks():
+    # cancellazione "pigra" del passato: basta aprire/ricaricare la vista perché
+    # i blocchi di giorni già trascorsi spariscano, nessun cron necessario
+    execute_db("DELETE FROM planning_blocks WHERE day < date('now', 'localtime')")
+    rows = query_db("SELECT * FROM planning_blocks ORDER BY day, start_min")
+    return jsonify(rows)
+
+
+@app.route("/planning", methods=["POST"])
+def create_planning_block():
+    data = request.get_json() or {}
+    task_id = data.get("task_id")
+    task = get_task(task_id) if task_id is not None else None
+    if task is None:
+        return {"error": "Task non trovato"}, 404
+    if task["children_count"] > 0:
+        return {"error": "La pianificazione è disponibile solo sulle foglie"}, 409
+
+    try:
+        day = validate_date(data.get("day"), "Giorno")
+        if not day:
+            raise ValueError("Giorno mancante")
+        start_min = validate_minutes(data.get("start_min"), "Inizio")
+        end_min = validate_minutes(data.get("end_min"), "Fine")
+        if end_min <= start_min:
+            raise ValueError("La fine deve essere successiva all'inizio")
+    except ValueError as e:
+        return {"error": str(e)}, 400
+
+    new_id = execute_db(
+        "INSERT INTO planning_blocks (task_id, day, start_min, end_min) VALUES (?, ?, ?, ?)",
+        (task_id, day, start_min, end_min),
+    )
+    block = query_one("SELECT * FROM planning_blocks WHERE id = ?", [new_id])
+    return jsonify(block), 201
+
+
+@app.route("/planning/<int:block_id>", methods=["PUT"])
+def update_planning_block(block_id):
+    block = query_one("SELECT * FROM planning_blocks WHERE id = ?", [block_id])
+    if block is None:
+        return {"error": "Blocco non trovato"}, 404
+
+    data = request.get_json() or {}
+    fields = {}
+    try:
+        if "day" in data:
+            day = validate_date(data["day"], "Giorno")
+            if not day:
+                raise ValueError("Giorno mancante")
+            fields["day"] = day
+        if "start_min" in data:
+            fields["start_min"] = validate_minutes(data["start_min"], "Inizio")
+        if "end_min" in data:
+            fields["end_min"] = validate_minutes(data["end_min"], "Fine")
+
+        start_min = fields.get("start_min", block["start_min"])
+        end_min = fields.get("end_min", block["end_min"])
+        if end_min <= start_min:
+            raise ValueError("La fine deve essere successiva all'inizio")
+    except ValueError as e:
+        return {"error": str(e)}, 400
+
+    if not fields:
+        return {"error": "Nessun campo da aggiornare"}, 400
+
+    set_clause = ", ".join(f"{key} = ?" for key in fields)
+    execute_db(f"UPDATE planning_blocks SET {set_clause} WHERE id = ?", (*fields.values(), block_id))
+    return {"status": "ok"}
+
+
+@app.route("/planning/<int:block_id>", methods=["DELETE"])
+def delete_planning_block(block_id):
+    if query_one("SELECT id FROM planning_blocks WHERE id = ?", [block_id]) is None:
+        return {"error": "Blocco non trovato"}, 404
+    execute_db("DELETE FROM planning_blocks WHERE id = ?", (block_id,))
+    return "", 204
 
 
 if __name__ == "__main__":

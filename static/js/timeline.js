@@ -480,3 +480,54 @@ export function attachBarMoveDrag(handle, node, buckets, totalWidth, inner, bar,
     document.addEventListener("mouseup", onMouseUp);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Vista Pianificazione: griglia oraria fissa (7 giorni da oggi, passo di 15
+// minuti), scala costante 1px/minuto — a differenza dei bucket qui sopra, la
+// scala non varia mai, quindi la matematica è più semplice (nessun bucket di
+// larghezza diversa da convertire)
+// ---------------------------------------------------------------------------
+
+export const PLANNING_DAYS = 7;
+export const PX_PER_MINUTE = 1; // 1 giorno = 1440px, 1 ora = 60px
+
+const PLANNING_DAY_FMT = new Intl.DateTimeFormat("it-IT", { weekday: "long", day: "numeric", month: "long" });
+
+export function buildPlanningDays() {
+  const today = startOfDay(new Date());
+  const days = [];
+  for (let i = 0; i < PLANNING_DAYS; i++) {
+    const date = addDays(today, i);
+    days.push({ date, iso: toISO(date), label: PLANNING_DAY_FMT.format(date) });
+  }
+  return days;
+}
+
+export function planningDayWidth() {
+  return 24 * 60 * PX_PER_MINUTE;
+}
+
+export function planningMinutesToX(dayIndex, minutes) {
+  return dayIndex * planningDayWidth() + minutes * PX_PER_MINUTE;
+}
+
+// inversa di planningMinutesToX: dalla posizione X (dentro l'intera griglia dei 7 giorni)
+// al giorno + minuto, arrotondato al quarto d'ora più vicino — usata durante il
+// trascinamento di creazione di un blocco
+export function planningXToMinutes(x) {
+  const dayWidth = planningDayWidth();
+  const dayIndex = Math.min(Math.max(Math.floor(x / dayWidth), 0), PLANNING_DAYS - 1);
+  const withinDay = x - dayIndex * dayWidth;
+  let minutes = Math.round(withinDay / PX_PER_MINUTE / 15) * 15;
+  minutes = Math.min(Math.max(minutes, 0), 1440);
+  return { dayIndex, minutes };
+}
+
+// posizione continua (non a scatti sul quarto d'ora) della linea "adesso" nel giorno 0
+// (oggi, sempre il primo della finestra), stesso principio di todayLineOffset ma sulla
+// scala fissa 1px/minuto invece che proporzionale a un bucket
+export function planningTodayLineOffset() {
+  const now = new Date();
+  const minutes = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+  return minutes * PX_PER_MINUTE;
+}

@@ -14,20 +14,19 @@ import {
   beginExclusiveDrag,
   endExclusiveDrag,
 } from "./timeline.js";
+import { renderPlanningInner, refreshPlanningBlocks } from "./render_planning.js";
 
 const TOOLBAR_HEIGHT = 30; // deve combaciare con l'altezza fissata in .calendar-toolbar (style.css)
 const PROXY_HEIGHT = 14; // deve combaciare con .calendar-scrollbar-proxy (style.css)
-const SUPER_HEADER_HEIGHT = 20; // fascia settimane/mesi/anni sopra l'intestazione normale, 0 se nascosta (vista "Globale")
+const SUPER_HEADER_HEIGHT = 20; // fascia settimane/mesi/anni (o giorni, in Pianificazione) sopra l'intestazione normale
 
 // ---------------------------------------------------------------------------
-// Rendering
+// Corpo della vista "timeline" (barre EX/DL a bucket giorno/settimana/mese/anno):
+// tutta la logica già esistente, invariata, solo estratta in funzione per convivere
+// con il corpo alternativo della vista "Pianificazione" (vedi render_planning.js)
 // ---------------------------------------------------------------------------
 
-export function renderCalendarOverlay(mainPanel, leaves) {
-  const table = mainPanel.querySelector("table.leaves-table");
-  if (!table || !table.tHead) return;
-
-  const granularity = state.calendarGranularity;
+function renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, granularity, theadHeight) {
   const buckets = buildBuckets(leaves, granularity);
   const totalWidth = buckets.reduce((sum, b) => sum + b.width, 0);
   const todayIndex = buckets.findIndex((b) => b.isToday);
@@ -41,99 +40,6 @@ export function renderCalendarOverlay(mainPanel, leaves) {
   // "oggi", barre) deve scendere di superHeaderHeight per restare allineato com'era prima
   // di questa fascia
   const superGroups = buildSuperHeaderGroups(buckets, granularity);
-  const superHeaderHeight = SUPER_HEADER_HEIGHT;
-
-  const tableRect = table.getBoundingClientRect();
-  const theadHeight = table.tHead.getBoundingClientRect().height;
-  const mainPanelRect = mainPanel.getBoundingClientRect();
-  const mainPanelLeft = mainPanelRect.left;
-  // il bordo sinistro del calendario è trascinabile fra la fine della colonna Titolo e la
-  // fine della colonna Descrizione: Data di esecuzione e Deadline restano sempre coperte
-  // dal calendario, mai scopribili trascinando verso destra
-  const minLeft = table.tHead.rows[0].children[1].getBoundingClientRect().right - mainPanelLeft;
-  const maxLeft = table.tHead.rows[0].children[4].getBoundingClientRect().right - mainPanelLeft;
-  const defaultLeft = table.tHead.rows[0].children[2].getBoundingClientRect().right - mainPanelLeft;
-  const colOffset =
-    state.calendarLeftOffset === null
-      ? defaultLeft
-      : Math.min(Math.max(state.calendarLeftOffset, minLeft), maxLeft);
-  const tableHeight = tableRect.height;
-  const bodyRows = table.tBodies[0] ? [...table.tBodies[0].rows] : [];
-
-  const overlay = document.createElement("div");
-  overlay.className = "calendar-overlay";
-  overlay.style.left = `${colOffset}px`;
-  // l'overlay non parte dalla cima di #main-panel ma esattamente dalla cima della <table>
-  // (sopra c'è la barra filtri): senza questo, la toolbar del calendario (altezza fissa)
-  // non combacia con l'altezza reale della barra filtri e .calendar-inner finisce
-  // disallineato rispetto alle righe della tabella di qualche pixel
-  overlay.style.top = `${tableRect.top - mainPanelRect.top - TOOLBAR_HEIGHT - superHeaderHeight}px`;
-  overlay.style.height = `${tableHeight + TOOLBAR_HEIGHT + PROXY_HEIGHT + superHeaderHeight}px`;
-
-  const resizeHandle = document.createElement("div");
-  resizeHandle.className = "calendar-resize-handle";
-  resizeHandle.addEventListener("mousedown", (e) => {
-    e.preventDefault();
-    cancelActiveDrag();
-    const onMouseMove = (moveEvent) => {
-      const newLeft = Math.min(Math.max(moveEvent.clientX - mainPanelLeft, minLeft), maxLeft);
-      overlay.style.left = `${newLeft}px`;
-      state.calendarLeftOffset = newLeft;
-    };
-    const onMouseUp = () => {
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-      endExclusiveDrag();
-    };
-    beginExclusiveDrag(onMouseUp);
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
-  });
-  overlay.appendChild(resizeHandle);
-
-  const toolbar = document.createElement("div");
-  toolbar.className = "calendar-toolbar";
-  GRANULARITIES.forEach(({ key, label }) => {
-    const btn = document.createElement("button");
-    btn.className = "filter-group-btn";
-    btn.classList.toggle("active", granularity === key);
-    btn.textContent = label;
-    btn.onclick = () => {
-      state.calendarGranularity = key;
-      rerender();
-    };
-    toolbar.appendChild(btn);
-  });
-
-  // sorting secondario a scelta manuale (in aggiunta al criterio di ordinamento primario
-  // della tabella FOGLIE), per data di esecuzione o per deadline, su tutti gli status
-  const dateSortGroup = document.createElement("div");
-  dateSortGroup.className = "calendar-date-sort-group";
-  [
-    { key: "execution_date", label: "EX" },
-    { key: "deadline", label: "DL" },
-  ].forEach(({ key, label }) => {
-    const btn = document.createElement("button");
-    btn.className = "filter-group-btn";
-    btn.classList.toggle("active", state.leafFilters.dateSecondarySort === key);
-    btn.textContent = label;
-    btn.title = `Ordina in aggiunta per ${label === "EX" ? "data di esecuzione" : "deadline"}`;
-    btn.onclick = () => {
-      state.leafFilters.dateSecondarySort = state.leafFilters.dateSecondarySort === key ? null : key;
-      rerender();
-    };
-    dateSortGroup.appendChild(btn);
-  });
-  toolbar.appendChild(dateSortGroup);
-
-  overlay.appendChild(toolbar);
-
-  const scroll = document.createElement("div");
-  scroll.className = "calendar-scroll";
-
-  const inner = document.createElement("div");
-  inner.className = "calendar-inner";
-  inner.style.width = `${totalWidth}px`;
 
   const superHeaderRow = document.createElement("div");
   superHeaderRow.className = "calendar-header-row";
@@ -265,6 +171,146 @@ export function renderCalendarOverlay(mainPanel, leaves) {
     inner.appendChild(bar);
   });
 
+  const initialScrollLeft = todayIndex >= 0 ? Math.max(bucketOffset(buckets, todayIndex) - 40, 0) : 0;
+  return { totalWidth, initialScrollLeft };
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+export function renderCalendarOverlay(mainPanel, leaves) {
+  const table = mainPanel.querySelector("table.leaves-table");
+  if (!table || !table.tHead) return;
+
+  const mode = state.calendarMode;
+  const granularity = state.calendarGranularity;
+  const superHeaderHeight = SUPER_HEADER_HEIGHT;
+
+  const tableRect = table.getBoundingClientRect();
+  const theadHeight = table.tHead.getBoundingClientRect().height;
+  const mainPanelRect = mainPanel.getBoundingClientRect();
+  const mainPanelLeft = mainPanelRect.left;
+  // il bordo sinistro del calendario è trascinabile fra la fine della colonna Titolo e la
+  // fine della colonna Descrizione: Data di esecuzione e Deadline restano sempre coperte
+  // dal calendario, mai scopribili trascinando verso destra
+  const minLeft = table.tHead.rows[0].children[1].getBoundingClientRect().right - mainPanelLeft;
+  const maxLeft = table.tHead.rows[0].children[4].getBoundingClientRect().right - mainPanelLeft;
+  const defaultLeft = table.tHead.rows[0].children[2].getBoundingClientRect().right - mainPanelLeft;
+  const colOffset =
+    state.calendarLeftOffset === null
+      ? defaultLeft
+      : Math.min(Math.max(state.calendarLeftOffset, minLeft), maxLeft);
+  const tableHeight = tableRect.height;
+  const bodyRows = table.tBodies[0] ? [...table.tBodies[0].rows] : [];
+
+  const overlay = document.createElement("div");
+  overlay.className = "calendar-overlay";
+  overlay.style.left = `${colOffset}px`;
+  // l'overlay non parte dalla cima di #main-panel ma esattamente dalla cima della <table>
+  // (sopra c'è la barra filtri): senza questo, la toolbar del calendario (altezza fissa)
+  // non combacia con l'altezza reale della barra filtri e .calendar-inner finisce
+  // disallineato rispetto alle righe della tabella di qualche pixel
+  overlay.style.top = `${tableRect.top - mainPanelRect.top - TOOLBAR_HEIGHT - superHeaderHeight}px`;
+  overlay.style.height = `${tableHeight + TOOLBAR_HEIGHT + PROXY_HEIGHT + superHeaderHeight}px`;
+
+  const resizeHandle = document.createElement("div");
+  resizeHandle.className = "calendar-resize-handle";
+  resizeHandle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    cancelActiveDrag();
+    const onMouseMove = (moveEvent) => {
+      const newLeft = Math.min(Math.max(moveEvent.clientX - mainPanelLeft, minLeft), maxLeft);
+      overlay.style.left = `${newLeft}px`;
+      state.calendarLeftOffset = newLeft;
+    };
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      endExclusiveDrag();
+    };
+    beginExclusiveDrag(onMouseUp);
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  });
+  overlay.appendChild(resizeHandle);
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "calendar-toolbar";
+
+  // "Pianificazione" è un quinto bottone-vista pari agli altri, sempre a sinistra di
+  // "Settimana": passa alla lavagna oraria usa-e-getta (render_planning.js), scorrelata
+  // da EX/DL. Cliccare una qualunque granularità torna alla vista timeline a bucket
+  const planningBtn = document.createElement("button");
+  planningBtn.className = "filter-group-btn";
+  planningBtn.classList.toggle("active", mode === "planning");
+  planningBtn.textContent = "Pianificazione";
+  planningBtn.onclick = () => {
+    state.calendarMode = "planning";
+    rerender();
+    refreshPlanningBlocks();
+  };
+  toolbar.appendChild(planningBtn);
+
+  GRANULARITIES.forEach(({ key, label }) => {
+    const btn = document.createElement("button");
+    btn.className = "filter-group-btn";
+    btn.classList.toggle("active", mode === "timeline" && granularity === key);
+    btn.textContent = label;
+    btn.onclick = () => {
+      state.calendarMode = "timeline";
+      state.calendarGranularity = key;
+      rerender();
+    };
+    toolbar.appendChild(btn);
+  });
+
+  // sorting secondario a scelta manuale (in aggiunta al criterio di ordinamento primario
+  // della tabella FOGLIE), per data di esecuzione o per deadline, su tutti gli status —
+  // resta valido anche in Pianificazione: determina comunque l'ordine delle righe
+  const dateSortGroup = document.createElement("div");
+  dateSortGroup.className = "calendar-date-sort-group";
+  [
+    { key: "execution_date", label: "EX" },
+    { key: "deadline", label: "DL" },
+  ].forEach(({ key, label }) => {
+    const btn = document.createElement("button");
+    btn.className = "filter-group-btn";
+    btn.classList.toggle("active", state.leafFilters.dateSecondarySort === key);
+    btn.textContent = label;
+    btn.title = `Ordina in aggiunta per ${label === "EX" ? "data di esecuzione" : "deadline"}`;
+    btn.onclick = () => {
+      state.leafFilters.dateSecondarySort = state.leafFilters.dateSecondarySort === key ? null : key;
+      rerender();
+    };
+    dateSortGroup.appendChild(btn);
+  });
+  toolbar.appendChild(dateSortGroup);
+
+  overlay.appendChild(toolbar);
+
+  const scroll = document.createElement("div");
+  scroll.className = "calendar-scroll";
+
+  const inner = document.createElement("div");
+  inner.className = "calendar-inner";
+
+  const { totalWidth, initialScrollLeft } =
+    mode === "planning"
+      ? renderPlanningInner(inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, theadHeight)
+      : renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, granularity, theadHeight);
+  inner.style.width = `${totalWidth}px`;
+  // .calendar-inner non ha altezza CSS propria: in flusso normale la sua altezza "auto" è
+  // solo quella delle due righe di intestazione appena aggiunte (super-header + header),
+  // perché tutto il resto (linee, barre) è position:absolute e non contribuisce all'altezza
+  // del genitore. Senza questa riga il box reale di .calendar-inner resta alto solo ~50px:
+  // le barre/linee restano visibili (sono figli assoluti, possono "uscire" dal box), ma un
+  // click reale del mouse sotto quei ~50px non arriva mai al listener mousedown attaccato a
+  // .calendar-inner (il click colpisce invece il genitore .calendar-scroll) — è per questo
+  // che il trascina-per-creare in Pianificazione risultava non rispondere al click reale,
+  // pur avendo funzionato nei test con eventi sintetici dispatchati direttamente su inner.
+  inner.style.height = `${superHeaderHeight + tableHeight}px`;
+
   scroll.appendChild(inner);
   overlay.appendChild(scroll);
 
@@ -295,7 +341,5 @@ export function renderCalendarOverlay(mainPanel, leaves) {
   overlay.appendChild(proxy);
   mainPanel.appendChild(overlay);
 
-  if (todayIndex >= 0) {
-    scroll.scrollLeft = Math.max(bucketOffset(buckets, todayIndex) - 40, 0);
-  }
+  scroll.scrollLeft = initialScrollLeft;
 }

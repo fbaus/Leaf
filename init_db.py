@@ -58,6 +58,20 @@ CREATE TABLE checklist_items (
   created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 CREATE INDEX idx_checklist_task_id ON checklist_items(task_id);
+
+DROP TABLE IF EXISTS planning_blocks;
+
+CREATE TABLE planning_blocks (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id     INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  day         TEXT NOT NULL,
+  start_min   INTEGER NOT NULL CHECK (start_min >= 0 AND start_min < 1440),
+  end_min     INTEGER NOT NULL CHECK (end_min > 0 AND end_min <= 1440),
+  created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  CHECK (end_min > start_min)
+);
+CREATE INDEX idx_planning_blocks_day ON planning_blocks(day);
+CREATE INDEX idx_planning_blocks_task_id ON planning_blocks(task_id);
 """)
 
 conn.commit()

@@ -17,8 +17,10 @@ export const state = {
   highlightedDepsSourceId: null, // id del task il cui bottone "Dipendenze" è attivo
   highlightedDepsIds: new Set(), // id dei nodi dipendenza da evidenziare in giallo
   calendarOpen: false,
-  calendarGranularity: "giorno", // "giorno" | "settimana" | "mese" | "anno"
+  calendarMode: "timeline", // "timeline" (barre EX/DL a bucket) | "planning" (lavagna oraria usa-e-getta)
+  calendarGranularity: "giorno", // "giorno" | "settimana" | "mese" | "anno" (valida solo in modalità "timeline")
   calendarLeftOffset: null, // px da sinistra di #main-panel al bordo sinistro del calendario; null = default
+  planningBlocks: [], // blocchi della vista Pianificazione, caricati on-demand (vedi refreshPlanningBlocks in render_planning.js)
   notesSearchText: "",
   expandedNoteIds: new Set(), // id delle singole note (per giorno) espanse a tutta l'altezza del testo
   editingNoteRowIds: new Set(), // id delle singole righe-nota (per giorno) in modifica inline

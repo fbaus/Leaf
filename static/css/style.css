@@ -571,6 +571,15 @@ td.leaf-title-cell:hover {
   pointer-events: none;
 }
 
+/* riga-guida ogni quarto d'ora nella vista Pianificazione, più chiara della riga piena
+   di ogni ora (.calendar-grid-line) */
+.planning-quarter-line {
+  position: absolute;
+  top: 0;
+  border-left: 1px solid #eee;
+  pointer-events: none;
+}
+
 .calendar-today-line {
   position: absolute;
   top: 0;
@@ -592,6 +601,13 @@ td.leaf-title-cell:hover {
   position: absolute;
   border-radius: 8px;
   opacity: 0.85;
+}
+
+/* blocco della vista Pianificazione: colore dedicato (non uno status reale) per
+   distinguerlo a colpo d'occhio dalle barre EX/DL colorate per stato */
+.planning-block {
+  background: #26a69a;
+  cursor: default;
 }
 
 .calendar-bar-handle {
