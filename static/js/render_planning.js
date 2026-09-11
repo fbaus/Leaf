@@ -6,7 +6,7 @@
 // ogni apertura, vedi GET /planning in app.py).
 
 import { state, rerender } from "./state.js";
-import { fetchPlanningBlocks, createPlanningBlock, deletePlanningBlock } from "./api.js";
+import { fetchPlanningBlocks, createPlanningBlock, updatePlanningBlock, deletePlanningBlock } from "./api.js";
 import { showContextMenu } from "./context_menu.js";
 import {
   PLANNING_DAYS,
@@ -29,6 +29,20 @@ function formatMinutes(totalMinutes) {
   const m = totalMinutes % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
+
+// la linea "adesso" si aggiorna da sola, senza bisogno di refreshare la pagina: ogni tick
+// sposta solo lo style.left dell'elemento già presente nel DOM (nessun ridisegno della
+// griglia, nessuna chiamata di rete) — un lavoro trascurabile, quindi 30s di cadenza sono
+// più che sufficienti (la linea si sposta di 1px al minuto, lo scarto resta impercettibile).
+// Gira per tutta la vita della pagina: costa una singola query DOM ogni 30s anche quando la
+// vista Pianificazione non è aperta, il che è già abbastanza leggero da non giustificare la
+// complessità di un avvio/arresto legato all'apertura/chiusura del Calendario
+setInterval(() => {
+  if (state.calendarMode !== "planning") return;
+  const line = document.querySelector(".calendar-today-line");
+  if (!line) return;
+  line.style.left = `${planningTodayLineOffset()}px`;
+}, 30000);
 
 // ricarica i blocchi dal server e ridisegna — va chiamata esplicitamente (ingresso in
 // modalità Pianificazione, dopo una creazione/eliminazione), mai dentro il rendering
@@ -118,6 +132,70 @@ function attachPlanningCreateDrag(inner, leaves, rowRanges, days, dayWidth, supe
           start_min: lastRange.startMin,
           end_min: lastRange.endMin,
         })
+          .then(() => refreshPlanningBlocks())
+          .catch((err) => alert(err.message));
+      }
+    };
+
+    beginExclusiveDrag(onMouseUp);
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  });
+}
+
+// trascinamento di un'estremità di un blocco già esistente (gli stessi "pallini di
+// aggancio" di attachBarHandleDrag in timeline.js, ma su minuti invece che su date): il
+// blocco resta sempre dentro il giorno in cui vive (non attraversa la mezzanotte, come in
+// creazione), le due estremità si clampano a vicenda restando ad almeno 15 minuti di
+// distanza. Niente maniglia centrale di spostamento in blocco: qui basta ridimensionare
+function attachPlanningHandleDrag(handle, edge, block, dayIndex, dayWidth, inner, bar) {
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const innerLeft = inner.getBoundingClientRect().left;
+    const dayStartX = dayIndex * dayWidth;
+    const dayEndX = dayStartX + dayWidth - 1;
+    const originalStart = block.start_min;
+    const originalEnd = block.end_min;
+    let currentStart = originalStart;
+    let currentEnd = originalEnd;
+
+    const tooltip = createDragTooltip();
+
+    const onMouseMove = (moveEvent) => {
+      const rawX = moveEvent.clientX - innerLeft;
+      const clampedX = Math.min(Math.max(rawX, dayStartX), dayEndX);
+      const { minutes } = planningXToMinutes(clampedX);
+
+      if (edge === "left") {
+        currentStart = Math.min(Math.max(minutes, 0), originalEnd - 15);
+      } else {
+        currentEnd = Math.max(Math.min(minutes, 1440), originalStart + 15);
+      }
+
+      const left = planningMinutesToX(dayIndex, currentStart);
+      const right = planningMinutesToX(dayIndex, currentEnd);
+      bar.style.left = `${left + 1}px`;
+      bar.style.width = `${Math.max(right - left - 2, 2)}px`;
+
+      tooltip.textContent = `${formatMinutes(currentStart)} – ${formatMinutes(currentEnd)}`;
+      tooltip.style.left = `${moveEvent.clientX + 14}px`;
+      tooltip.style.top = `${moveEvent.clientY - 28}px`;
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      endExclusiveDrag();
+      tooltip.remove();
+
+      if (edge === "left" && currentStart !== originalStart) {
+        updatePlanningBlock(block.id, { start_min: currentStart })
+          .then(() => refreshPlanningBlocks())
+          .catch((err) => alert(err.message));
+      } else if (edge === "right" && currentEnd !== originalEnd) {
+        updatePlanningBlock(block.id, { end_min: currentEnd })
           .then(() => refreshPlanningBlocks())
           .catch((err) => alert(err.message));
       }
@@ -258,6 +336,17 @@ export function renderPlanningInner(inner, leaves, bodyRows, tableRect, tableHei
     bar.style.top = `${range.top + height * 0.3 + superHeaderHeight}px`;
     bar.style.height = `${height * 0.4}px`;
     bar.title = `${leaves[rowIndex].title} (${formatMinutes(block.start_min)}–${formatMinutes(block.end_min)})`;
+
+    const leftHandle = document.createElement("div");
+    leftHandle.className = "calendar-bar-handle left";
+    bar.appendChild(leftHandle);
+    attachPlanningHandleDrag(leftHandle, "left", block, dayIndex, dayWidth, inner, bar);
+
+    const rightHandle = document.createElement("div");
+    rightHandle.className = "calendar-bar-handle right";
+    bar.appendChild(rightHandle);
+    attachPlanningHandleDrag(rightHandle, "right", block, dayIndex, dayWidth, inner, bar);
+
     bar.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       e.stopPropagation();

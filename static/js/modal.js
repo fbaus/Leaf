@@ -132,6 +132,18 @@ function updateLabelVisibility(node) {
   const label = fieldLabel.value;
   const openMode = label === "APERTO";
 
+  // un ramo non ha mai uno status proprio (solo le foglie ce l'hanno, vedi isLeaf/label nel
+  // backend): nessuno dei due riquadri Status ha senso per lui — senza questo, un ramo
+  // mostrava comunque "Status (calcolato automaticamente)" con "(calcolato al salvataggio)",
+  // fuorviante perché per un ramo non verrà mai calcolato nulla
+  if (!editingIsLeaf) {
+    fieldStatusOpenWrapper.style.display = "none";
+    fieldStatusClosedWrapper.style.display = "none";
+    modalSubmit.disabled = false;
+    fieldDeadlineLabel.classList.remove("field-warning");
+    return;
+  }
+
   fieldStatusOpenWrapper.style.display = openMode ? "block" : "none";
   fieldStatusClosedWrapper.style.display = openMode ? "none" : "block";
 
