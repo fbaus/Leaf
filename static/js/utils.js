@@ -32,6 +32,40 @@ export function isLeaf(node) {
   return node.children_count === 0;
 }
 
+// una dipendenza (foglia diretta, o foglia dentro un ramo dipendenza) conta come "aperta"
+// solo se non è in uno stato chiuso — le stesse regole di STATUS_GROUPS.APERTE
+export function isOpenLeaf(node) {
+  return isLeaf(node) && !!node.status && !CLOSED_STATUSES.has(node.status);
+}
+
+// mappa parent_id -> figli diretti, usata per scendere ricorsivamente dentro un ramo
+export function childrenIndex(tasks) {
+  const map = {};
+  tasks.forEach((t) => {
+    if (t.parent_id !== null) {
+      (map[t.parent_id] ??= []).push(t);
+    }
+  });
+  return map;
+}
+
+// tutte le foglie "aperte" contenute (ricorsivamente) dentro un ramo — usata per decidere se
+// mostrare/evidenziare una dipendenza verso un ramo in base al suo contenuto reale, non allo
+// stato del ramo stesso (i rami non hanno status)
+export function openLeafDescendants(branchNode, childrenByParent) {
+  const result = [];
+  const stack = [...(childrenByParent[branchNode.id] || [])];
+  while (stack.length > 0) {
+    const n = stack.pop();
+    if (isLeaf(n)) {
+      if (isOpenLeaf(n)) result.push(n);
+    } else {
+      stack.push(...(childrenByParent[n.id] || []));
+    }
+  }
+  return result;
+}
+
 export function truncate(text, n) {
   if (!text) return "";
   return text.length > n ? text.slice(0, n) + "…" : text;

@@ -1,6 +1,7 @@
 import { state, reload, rerender } from "./state.js";
 import {
   isLeaf,
+  isOpenLeaf,
   byId,
   rootTitle,
   truncate,
@@ -12,6 +13,8 @@ import {
   SORT_LABELS,
   sortableHeader,
   makeBadge,
+  childrenIndex,
+  openLeafDescendants,
 } from "./utils.js";
 import { setFocus } from "./api.js";
 import { openEditModal } from "./modal.js";
@@ -75,6 +78,8 @@ function renderTable(mainPanel, tasksById) {
   leaves = leaves.filter((n) => matchesStatusGroup(n, state.leafFilters.statusGroup));
   leaves = leaves.filter((n) => isRootIncluded(rootIdOf(n, tasksById)));
   leaves = sortRows(leaves, tasksById, state.leafFilters.sortBy, state.leafFilters.dateSecondarySort);
+
+  const childrenByParent = childrenIndex(state.tasks);
 
   const table = document.createElement("table");
   table.className = "leaves-table";
@@ -154,7 +159,10 @@ function renderTable(mainPanel, tasksById) {
     // due tag distinti, uno per tipo di dipendenza, entrambi accanto al titolo: quello
     // verso foglie (rosa) accende/spegne l'evidenziazione delle righe dipendenti in questa
     // stessa vista; quello verso rami (viola), subito alla sua destra, porta all'albero
-    // (unico posto dove un ramo è visibile)
+    // (unico posto dove un ramo è visibile). Entrambi compaiono solo se la dipendenza è
+    // ancora "aperta" (per un ramo: se contiene almeno una foglia aperta, ricorsivamente —
+    // un ramo non ha uno status proprio) — una dipendenza interamente chiusa non blocca più
+    // nulla, quindi non ha senso segnalarla
     const leafDeps = (node.dependency_ids || [])
       .map((id) => tasksById[id])
       .filter((dep) => dep && isLeaf(dep));
@@ -162,25 +170,41 @@ function renderTable(mainPanel, tasksById) {
       .map((id) => tasksById[id])
       .filter((dep) => dep && !isLeaf(dep));
 
-    if (leafDeps.length > 0) {
+    const openLeafDeps = leafDeps.filter(isOpenLeaf);
+    const openBranchDeps = branchDeps
+      .map((branch) => ({ branch, openLeaves: openLeafDescendants(branch, childrenByParent) }))
+      .filter((entry) => entry.openLeaves.length > 0);
+
+    if (openLeafDeps.length > 0 || openBranchDeps.length > 0) {
+      // insieme evidenziato dal tag "foglie": le dipendenze-foglia dirette aperte, più —
+      // per ogni dipendenza-ramo ancora aperta — tutte le sue foglie aperte, scese
+      // ricorsivamente dentro eventuali sotto-rami
+      const highlightIds = new Set([
+        ...openLeafDeps.map((d) => d.id),
+        ...openBranchDeps.flatMap((entry) => entry.openLeaves.map((l) => l.id)),
+      ]);
       const leafTag = document.createElement("button");
       leafTag.className = "deps-branch-badge";
       leafTag.textContent = "🔗";
       leafTag.classList.toggle("active", state.highlightedDepsSourceId === node.id);
-      leafTag.title = `Dipendenze foglie:\n${leafDeps.map((d) => d.title).join("\n")}`;
-      leafTag.onclick = () => toggleDependencyHighlight(node);
+      const titleLines = [
+        ...openLeafDeps.map((d) => d.title),
+        ...openBranchDeps.flatMap((entry) => entry.openLeaves.map((l) => l.title)),
+      ];
+      leafTag.title = `Dipendenze foglie aperte:\n${titleLines.join("\n")}`;
+      leafTag.onclick = () => toggleDependencyHighlight(node, highlightIds);
       titleRow.appendChild(leafTag);
     }
 
-    if (branchDeps.length > 0) {
+    if (openBranchDeps.length > 0) {
       const branchTag = document.createElement("button");
       branchTag.className = "deps-branch-badge deps-branch-badge-violet";
       branchTag.textContent = "🔗";
-      branchTag.title = `Dipendenze rami:\n${branchDeps.map((d) => d.title).join("\n")}`;
+      branchTag.title = `Dipendenze rami (con foglie ancora aperte):\n${openBranchDeps.map((entry) => entry.branch.title).join("\n")}`;
       // solo il salto all'albero, senza accendere l'evidenziazione gialla (che essendo
       // stato globale resterebbe accesa anche tornando su questa vista) — l'evidenziazione
       // "sei arrivato qui" nell'albero la dà comunque jumpToTree per conto suo
-      branchTag.onclick = () => jumpToTree(branchDeps[0].id);
+      branchTag.onclick = () => jumpToTree(openBranchDeps[0].branch.id);
       titleRow.appendChild(branchTag);
     }
 
