@@ -211,6 +211,16 @@ def validate_label(value):
     return value
 
 
+def validate_estimated_days(value):
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("Tempo stimato deve essere un numero")
+    if value <= 0:
+        raise ValueError("Tempo stimato deve essere maggiore di zero")
+    return round(value, 1)
+
+
 def enforce_open_task_rules(fields, execution_date, deadline, assegnato, dependency_ids):
     """Regole 1-5 per un task APERTO. Ritorna execution_date (eventualmente auto-riempita)."""
     if execution_date is not None and deadline is None:
@@ -285,6 +295,33 @@ def resolve_dependency_status(dep_id, tasks_by_id, children_by_parent, cache):
     else:
         result = STATUS_INTERROTTO
     cache[dep_id] = result
+    return result
+
+
+def compute_estimated_days_rollup(node_id, tasks_by_id, children_by_parent, cache):
+    """Tempo stimato 'effettivo' di un nodo: per una foglia è il suo valore proprio, ma solo
+    se è attiva (label APERTO — una foglia CHIUSA non contribuisce mai a un rollup, anche se
+    il suo valore resta salvato e visibile su se stessa); per un ramo è la somma ricorsiva del
+    tempo stimato di tutte le foglie discendenti attive (mai memorizzata su un ramo, sempre
+    ricalcolata). Nessuna dipendenza dalle deleghe qui: quel filtro ("non delegate") arriva
+    con la Fase 4. None se non c'è alcun contributo (nessuna foglia attiva con una stima),
+    cosa diversa da 0 — permette al frontend di mostrare "—" invece di "0"."""
+    if node_id in cache:
+        return cache[node_id]
+    task = tasks_by_id[node_id]
+    if task["children_count"] == 0:
+        result = task["estimated_days"] if task["label"] == "APERTO" else None
+        cache[node_id] = result
+        return result
+    total = 0.0
+    any_value = False
+    for child in children_by_parent.get(node_id, []):
+        child_value = compute_estimated_days_rollup(child["id"], tasks_by_id, children_by_parent, cache)
+        if child_value is not None:
+            total += child_value
+            any_value = True
+    result = round(total, 1) if any_value else None
+    cache[node_id] = result
     return result
 
 
@@ -536,6 +573,15 @@ def get_tasks():
             t["status"] = computed_status
             t["escalation"] = escalated and not t["escalation_seen"]
 
+    # tempo stimato di un ramo: mai memorizzato (la colonna resta NULL, azzerata nello
+    # stesso istante in cui una foglia guadagna il primo figlio), sempre ricalcolato qui
+    # come somma delle foglie discendenti attive — sovrascrive solo per i rami, il valore
+    # di una foglia è già quello vero letto dal db (SELECT t.* più sopra)
+    estimated_cache = {}
+    for t in tasks:
+        if t["children_count"] > 0:
+            t["estimated_days"] = compute_estimated_days_rollup(t["id"], tasks_by_id, children_by_parent, estimated_cache)
+
     # propaga "expired" verso l'alto (padre, nonno, ... fino alla radice): un ramo non è mai
     # "expired" di suo (la sua deadline è il rollup MAX dei figli, quindi in genere non ancora
     # raggiunta anche quando un figlio più urgente lo è già), ma deve comunque segnalare la
@@ -568,6 +614,7 @@ def create_task():
         assegnato = validate_assegnato(data.get("assegnato"))
         label = validate_label(data.get("label")) or "APERTO"
         status = validate_status(data.get("status"))
+        estimated_days = validate_estimated_days(data.get("estimated_days"))
         dependency_ids = [int(x) for x in data.get("dependency_ids") or []]
 
         fields = {}
@@ -595,17 +642,18 @@ def create_task():
     new_id = execute_db(
         """
         INSERT INTO tasks (parent_id, owner_id, title, description, deadline, execution_date,
-                            assegnato, label, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            assegnato, label, status, estimated_days)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (parent_id, current_user_id(), title, description, deadline, execution_date, assegnato, label, status),
+        (parent_id, current_user_id(), title, description, deadline, execution_date, assegnato, label, status,
+         estimated_days),
     )
 
     statements = []
     # una foglia che diventa nodo padre perde status/focus/label e le sue dipendenze
     if parent is not None and parent["children_count"] == 0:
         statements.append((
-            "UPDATE tasks SET status = NULL, focus = 0, label = NULL, assegnato = NULL WHERE id = ?",
+            "UPDATE tasks SET status = NULL, focus = 0, label = NULL, assegnato = NULL, estimated_days = NULL WHERE id = ?",
             (parent_id,),
         ))
         statements.append((
@@ -650,6 +698,8 @@ def update_task(task_id):
             fields["label"] = validate_label(data["label"])
         if "status" in data:
             fields["status"] = validate_status(data["status"])
+        if "estimated_days" in data:
+            fields["estimated_days"] = validate_estimated_days(data["estimated_days"])
     except ValueError as e:
         return {"error": str(e)}, 400
 
@@ -672,9 +722,12 @@ def update_task(task_id):
     try:
         if task["children_count"] > 0:
             # un nodo con figli non ha label/status (non è né APERTO né CHIUSO) e le sue
-            # date non si impostano più a mano: sono sempre il rollup automatico dei figli
-            if "execution_date" in fields or "deadline" in fields:
-                return {"error": "Le date di un nodo con figli sono calcolate automaticamente dai figli"}, 409
+            # date/tempo stimato non si impostano più a mano: sono sempre calcolati
+            # automaticamente dai figli
+            if "execution_date" in fields or "deadline" in fields or "estimated_days" in fields:
+                return {
+                    "error": "Le date e il tempo stimato di un nodo con figli sono calcolati automaticamente dai figli"
+                }, 409
             enforce_open_task_rules(fields, execution_date, deadline, assegnato, final_dependency_ids)
         elif label == "APERTO":
             if "status" in fields:
@@ -793,7 +846,7 @@ def move_task(task_id):
     # usata in create_task quando una foglia guadagna il primo figlio
     if new_parent is not None and new_parent["children_count"] == 0:
         statements.append((
-            "UPDATE tasks SET status = NULL, focus = 0, label = NULL, assegnato = NULL WHERE id = ?",
+            "UPDATE tasks SET status = NULL, focus = 0, label = NULL, assegnato = NULL, estimated_days = NULL WHERE id = ?",
             (new_parent_id,),
         ))
         statements.append((
@@ -1168,7 +1221,7 @@ def convert_all_checklist_items(task_id):
     # una foglia che diventa nodo padre perde status/focus/label e le sue dipendenze
     if parent["children_count"] == 0:
         statements.append((
-            "UPDATE tasks SET status = NULL, focus = 0, label = NULL, assegnato = NULL WHERE id = ?",
+            "UPDATE tasks SET status = NULL, focus = 0, label = NULL, assegnato = NULL, estimated_days = NULL WHERE id = ?",
             (task_id,),
         ))
         statements.append((

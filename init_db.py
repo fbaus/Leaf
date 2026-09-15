@@ -33,6 +33,7 @@ CREATE TABLE tasks (
   focus           INTEGER NOT NULL DEFAULT 0 CHECK (focus IN (0,1)),
   urgent          INTEGER NOT NULL DEFAULT 0 CHECK (urgent IN (0,1)),
   execution_date  TEXT,
+  estimated_days  REAL CHECK (estimated_days IS NULL OR estimated_days > 0),
   created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 

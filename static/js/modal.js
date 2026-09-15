@@ -14,6 +14,10 @@ const fieldExecutionDate = document.getElementById("field-execution-date");
 const fieldDatesEditableRow = document.getElementById("field-dates-editable-row");
 const fieldDatesComputedWrapper = document.getElementById("field-dates-computed-wrapper");
 const fieldDatesComputed = document.getElementById("field-dates-computed");
+const fieldEstimatedEditableRow = document.getElementById("field-estimated-editable-row");
+const fieldEstimatedComputedWrapper = document.getElementById("field-estimated-computed-wrapper");
+const fieldEstimatedComputed = document.getElementById("field-estimated-computed");
+const fieldEstimatedDays = document.getElementById("field-estimated-days");
 const fieldLabelWrapper = document.getElementById("field-label-wrapper");
 const fieldLabel = document.getElementById("field-label");
 const fieldStatusOpenWrapper = document.getElementById("field-status-open-wrapper");
@@ -327,6 +331,8 @@ export function openCreateModal(parentId) {
   updateLabelVisibility(null);
   fieldDatesEditableRow.style.display = "flex";
   fieldDatesComputedWrapper.style.display = "none";
+  fieldEstimatedEditableRow.style.display = "flex";
+  fieldEstimatedComputedWrapper.style.display = "none";
   checklistWrapper.classList.add("hidden"); // serve un nodo già esistente
   fieldFocusWrapper.classList.add("hidden"); // idem: il focus si attiva solo su un nodo esistente
 
@@ -353,6 +359,16 @@ function applyNodeTypeFields(node) {
   if (!leaf) {
     fieldDatesComputed.textContent =
       node.execution_date && node.deadline ? `${node.execution_date} → ${node.deadline}` : "—";
+  }
+
+  // il tempo stimato di un ramo è la somma (calcolata lato server) delle foglie
+  // discendenti attive: mai memorizzato su un ramo, non modificabile a mano
+  fieldEstimatedEditableRow.style.display = leaf ? "flex" : "none";
+  fieldEstimatedComputedWrapper.style.display = leaf ? "none" : "flex";
+  if (leaf) {
+    fieldEstimatedDays.value = node.estimated_days ?? "";
+  } else {
+    fieldEstimatedComputed.textContent = node.estimated_days != null ? `${node.estimated_days} giorni` : "—";
   }
 
   // il focus è consentito solo su una foglia APERTA, come nel menu contestuale dell'albero
@@ -426,11 +442,13 @@ async function submitForm() {
     description: fieldDescription.value.trim() || null,
   };
 
-  // le date di un ramo sono calcolate automaticamente dai figli: non fanno parte del
-  // payload (il backend le rifiuterebbe comunque se un nodo con figli provasse a impostarle)
+  // le date e il tempo stimato di un ramo sono calcolati automaticamente dai figli: non
+  // fanno parte del payload (il backend li rifiuterebbe comunque se un nodo con figli
+  // provasse a impostarli)
   if (editingIsLeaf) {
     payload.deadline = fieldDeadline.value || null;
     payload.execution_date = fieldExecutionDate.value || null;
+    payload.estimated_days = fieldEstimatedDays.value ? Number(fieldEstimatedDays.value) : null;
   }
 
   if (fieldLabelWrapper.style.display === "block") {
