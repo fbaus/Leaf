@@ -2,6 +2,7 @@ import { fetchTasks } from "./api.js";
 
 export const state = {
   tasks: [],
+  currentUser: null, // { id, username, is_superuser } dopo login/fetchMe riusciti, altrimenti null
   currentView: "albero",
   expandedIds: new Set(),
   searchText: "",

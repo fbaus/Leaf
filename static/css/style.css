@@ -1037,6 +1037,66 @@ td.leaf-title-cell:hover {
   overflow-y: auto;
 }
 
+/* z-index più alto di tutti gli altri overlay (gantt 900, modal 1000, dependency-picker
+   1100): il login deve stare sempre sopra, anche se per qualche motivo uno degli altri
+   fosse rimasto aperto */
+#login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#login-overlay.hidden {
+  display: none;
+}
+
+#login-box {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  width: 320px;
+  max-width: 90vw;
+}
+
+#login-form label {
+  display: block;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+
+#login-form input {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  margin-top: 4px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+#login-error {
+  color: #c62828;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+#user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 13px;
+}
+
+#user-info.hidden {
+  display: none;
+}
+
 #node-form label {
   display: block;
   margin-bottom: 14px;

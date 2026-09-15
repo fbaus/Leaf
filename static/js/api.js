@@ -113,3 +113,15 @@ export function updatePlanningBlock(blockId, payload) {
 export function deletePlanningBlock(blockId) {
   return fetch(`/planning/${blockId}`, { method: "DELETE" }).then(handle);
 }
+
+export function login(username, password) {
+  return postJson("/login", "POST", { username, password });
+}
+
+export function logout() {
+  return postJson("/logout", "POST", {});
+}
+
+export function fetchMe() {
+  return fetch("/me").then(handle);
+}

@@ -1,10 +1,14 @@
 import os
 from datetime import date, datetime, timedelta
 
-from flask import Flask, jsonify, request, render_template, send_file
+from flask import Flask, jsonify, request, render_template, send_file, session
+from werkzeug.security import check_password_hash
+from config import load_secret_key
 from database import query_db, query_one, execute_db, execute_transaction
 
 app = Flask(__name__)
+app.secret_key = load_secret_key()
+app.permanent_session_lifetime = timedelta(days=30)
 
 
 # status: 1 ATTIVO, 2 IN RITARDO, 3 BLOCCATO, 4 PIANIFICATO, 5 DIPENDENTE,
@@ -46,6 +50,95 @@ DEADLINE_APPROACHING_SQL = """
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+# ---------------------------------------------------------------------------
+# Autenticazione: sessione a cookie firmato (flask.session), nessun token. Ogni
+# route (tranne login/logout/index/static) richiede una sessione valida; la
+# visibilità dei task si ferma a "solo quelli creati dall'utente corrente" —
+# niente delega/superuser ancora (arrivano in fasi successive).
+# ---------------------------------------------------------------------------
+
+PUBLIC_ENDPOINTS = {"index", "login", "logout", "static"}
+
+
+@app.before_request
+def require_login():
+    if request.endpoint is None or request.endpoint in PUBLIC_ENDPOINTS:
+        return None
+    if "user_id" not in session:
+        return {"error": "Non autenticato"}, 401
+
+
+def current_user_id():
+    return session["user_id"]
+
+
+def require_owned_task(task_id):
+    """Come get_task, ma torna None sia se il task non esiste sia se esiste ma è di
+    un altro utente — le due situazioni devono produrre la stessa risposta (404) per
+    non rivelare l'esistenza di nodi altrui."""
+    task = get_task(task_id)
+    if task is None or task["owner_id"] != current_user_id():
+        return None
+    return task
+
+
+def get_owned_note(note_id):
+    return query_one(
+        """
+        SELECT n.* FROM notes n JOIN tasks t ON t.id = n.task_id
+        WHERE n.id = ? AND t.owner_id = ?
+        """,
+        [note_id, current_user_id()],
+    )
+
+
+def get_owned_checklist_item(item_id):
+    return query_one(
+        """
+        SELECT c.* FROM checklist_items c JOIN tasks t ON t.id = c.task_id
+        WHERE c.id = ? AND t.owner_id = ?
+        """,
+        [item_id, current_user_id()],
+    )
+
+
+def get_owned_planning_block(block_id):
+    return query_one(
+        """
+        SELECT pb.* FROM planning_blocks pb JOIN tasks t ON t.id = pb.task_id
+        WHERE pb.id = ? AND t.owner_id = ?
+        """,
+        [block_id, current_user_id()],
+    )
+
+
+@app.route("/login", methods=["POST"])
+def login():
+    data = request.get_json() or {}
+    username = data.get("username")
+    password = data.get("password")
+    user = query_one("SELECT * FROM users WHERE username = ?", [username]) if username else None
+    if user is None or not check_password_hash(user["password_hash"], password or ""):
+        # stesso messaggio per utente inesistente o password errata: non si rivela quale dei due
+        return {"error": "Credenziali non valide"}, 401
+    session.clear()
+    session["user_id"] = user["id"]
+    session.permanent = True
+    return {"id": user["id"], "username": user["username"], "is_superuser": bool(user["is_superuser"])}
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return {"status": "ok"}
+
+
+@app.route("/me", methods=["GET"])
+def me():
+    user = query_one("SELECT id, username, is_superuser FROM users WHERE id = ?", [current_user_id()])
+    return {"id": user["id"], "username": user["username"], "is_superuser": bool(user["is_superuser"])}
 
 
 # ---------------------------------------------------------------------------
@@ -224,8 +317,8 @@ def validate_dependencies(task_id, dependency_ids):
 
     existing_ids = {
         r["id"] for r in query_db(
-            f"SELECT id FROM tasks WHERE id IN ({','.join('?' * len(dependency_ids))})",
-            dependency_ids,
+            f"SELECT id FROM tasks WHERE owner_id = ? AND id IN ({','.join('?' * len(dependency_ids))})",
+            [current_user_id(), *dependency_ids],
         )
     }
     missing = set(dependency_ids) - existing_ids
@@ -388,7 +481,7 @@ def recompute_subtree_rollup(node_id):
 
 @app.route("/tasks/<int:task_id>/recompute-rollup", methods=["POST"])
 def recompute_rollup(task_id):
-    if get_task(task_id) is None:
+    if require_owned_task(task_id) is None:
         return {"error": "Task non trovato"}, 404
     recompute_subtree_rollup(task_id)
     return {"status": "ok"}
@@ -407,13 +500,17 @@ def get_tasks():
                {EXPIRED_SQL},
                {DEADLINE_APPROACHING_SQL}
         FROM tasks t
+        WHERE t.owner_id = ?
         ORDER BY t.id
-        """
+        """,
+        [current_user_id()],
     )
 
+    task_ids = {t["id"] for t in tasks}
     deps_by_task = {}
     for r in query_db("SELECT task_id, depends_on_id FROM task_dependencies"):
-        deps_by_task.setdefault(r["task_id"], []).append(r["depends_on_id"])
+        if r["task_id"] in task_ids:
+            deps_by_task.setdefault(r["task_id"], []).append(r["depends_on_id"])
 
     tasks_by_id = {t["id"]: t for t in tasks}
     children_by_parent = {}
@@ -489,7 +586,7 @@ def create_task():
     parent_id = data.get("parent_id")
     parent = None
     if parent_id is not None:
-        parent = get_task(parent_id)
+        parent = require_owned_task(parent_id)
         if parent is None:
             return {"error": "Nodo padre non trovato"}, 404
         if parent["children_count"] == 0 and parent["label"] == "CHIUSO":
@@ -497,11 +594,11 @@ def create_task():
 
     new_id = execute_db(
         """
-        INSERT INTO tasks (parent_id, title, description, deadline, execution_date,
+        INSERT INTO tasks (parent_id, owner_id, title, description, deadline, execution_date,
                             assegnato, label, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (parent_id, title, description, deadline, execution_date, assegnato, label, status),
+        (parent_id, current_user_id(), title, description, deadline, execution_date, assegnato, label, status),
     )
 
     statements = []
@@ -531,7 +628,7 @@ def create_task():
 
 @app.route("/tasks/<int:task_id>", methods=["PUT"])
 def update_task(task_id):
-    task = get_task(task_id)
+    task = require_owned_task(task_id)
     if task is None:
         return {"error": "Task non trovato"}, 404
 
@@ -632,7 +729,7 @@ def update_task(task_id):
 
 @app.route("/tasks/<int:task_id>/focus", methods=["PATCH"])
 def set_focus(task_id):
-    task = get_task(task_id)
+    task = require_owned_task(task_id)
     if task is None:
         return {"error": "Task non trovato"}, 404
 
@@ -645,7 +742,7 @@ def set_focus(task_id):
         if task["label"] == "CHIUSO":
             return {"error": "Un task chiuso non può avere il focus"}, 409
         execute_transaction([
-            ("UPDATE tasks SET focus = 0 WHERE focus = 1", ()),
+            ("UPDATE tasks SET focus = 0 WHERE focus = 1 AND owner_id = ?", (current_user_id(),)),
             ("UPDATE tasks SET focus = 1 WHERE id = ?", (task_id,)),
         ])
     else:
@@ -656,7 +753,7 @@ def set_focus(task_id):
 
 @app.route("/tasks/<int:task_id>/parent", methods=["PATCH"])
 def move_task(task_id):
-    task = get_task(task_id)
+    task = require_owned_task(task_id)
     if task is None:
         return {"error": "Task non trovato"}, 404
 
@@ -665,7 +762,7 @@ def move_task(task_id):
 
     new_parent = None
     if new_parent_id is not None:
-        new_parent = get_task(new_parent_id)
+        new_parent = require_owned_task(new_parent_id)
         if new_parent is None:
             return {"error": "Nodo padre non trovato"}, 404
         if new_parent["children_count"] == 0 and new_parent["label"] == "CHIUSO":
@@ -719,6 +816,8 @@ def move_task(task_id):
 @app.route("/tasks/<int:task_id>", methods=["DELETE"])
 def delete_task(task_id):
     task = get_task(task_id)
+    if task is not None and task["owner_id"] != current_user_id():
+        return {"error": "Task non trovato"}, 404
     parent_id = task["parent_id"] if task is not None else None
 
     # ON DELETE CASCADE elimina automaticamente sotto-albero, note e dipendenze collegate
@@ -744,6 +843,8 @@ def delete_task(task_id):
 
 @app.route("/tasks/<int:task_id>/ancestors", methods=["GET"])
 def get_ancestors(task_id):
+    if require_owned_task(task_id) is None:
+        return {"error": "Task non trovato"}, 404
     return jsonify(get_ancestor_ids(task_id))
 
 
@@ -753,6 +854,8 @@ def get_ancestors(task_id):
 
 @app.route("/notes/<int:task_id>", methods=["GET"])
 def get_notes(task_id):
+    if require_owned_task(task_id) is None:
+        return {"error": "Task non trovato"}, 404
     notes = query_db(
         """
         SELECT id, task_id, note_date, text, updated_at
@@ -773,7 +876,7 @@ def add_note(task_id):
     if not text or not text.strip():
         return {"error": "Nota vuota"}, 400
 
-    if get_task(task_id) is None:
+    if require_owned_task(task_id) is None:
         return {"error": "Task non trovato"}, 404
 
     stamped_text = f"[{datetime.now().strftime('%d/%m/%Y %H:%M:%S')}] {text.strip()}"
@@ -801,7 +904,7 @@ def update_note(note_id):
     if text is None or not text.strip():
         return {"error": "Nota vuota"}, 400
 
-    if query_one("SELECT id FROM notes WHERE id = ?", [note_id]) is None:
+    if get_owned_note(note_id) is None:
         return {"error": "Nota non trovata"}, 404
 
     execute_db(
@@ -813,6 +916,8 @@ def update_note(note_id):
 
 @app.route("/tasks/<int:task_id>/notes-subtree", methods=["GET"])
 def get_notes_subtree(task_id):
+    if require_owned_task(task_id) is None:
+        return {"error": "Task non trovato"}, 404
     rows = query_db(
         """
         WITH RECURSIVE subtree(id) AS (
@@ -918,13 +1023,15 @@ def preview_note_path():
 
 @app.route("/tasks/<int:task_id>/checklist", methods=["GET"])
 def get_checklist(task_id):
+    if require_owned_task(task_id) is None:
+        return {"error": "Task non trovato"}, 404
     rows = query_db("SELECT * FROM checklist_items WHERE task_id = ?", [task_id])
     return jsonify(rows)
 
 
 @app.route("/tasks/<int:task_id>/checklist", methods=["POST"])
 def add_checklist_item(task_id):
-    task = get_task(task_id)
+    task = require_owned_task(task_id)
     if task is None:
         return {"error": "Task non trovato"}, 404
     if task["children_count"] > 0:
@@ -954,7 +1061,7 @@ def add_checklist_item(task_id):
 
 @app.route("/checklist/<int:item_id>", methods=["PUT"])
 def update_checklist_item(item_id):
-    item = query_one("SELECT * FROM checklist_items WHERE id = ?", [item_id])
+    item = get_owned_checklist_item(item_id)
     if item is None:
         return {"error": "Voce non trovata"}, 404
 
@@ -989,7 +1096,7 @@ def update_checklist_item(item_id):
 
 @app.route("/checklist/<int:item_id>", methods=["DELETE"])
 def delete_checklist_item(item_id):
-    if query_one("SELECT id FROM checklist_items WHERE id = ?", [item_id]) is None:
+    if get_owned_checklist_item(item_id) is None:
         return {"error": "Voce non trovata"}, 404
     execute_db("DELETE FROM checklist_items WHERE id = ?", (item_id,))
     return "", 204
@@ -1004,7 +1111,7 @@ def convert_all_checklist_items(task_id):
     transizione "la foglia diventa ramo") ma è scritta a sé: niente refactor di
     create_task per condividerla, per non rischiare regressioni su un endpoint
     già solido."""
-    parent = get_task(task_id)
+    parent = require_owned_task(task_id)
     if parent is None:
         return {"error": "Task non trovato"}, 404
     if parent["children_count"] == 0 and parent["label"] == "CHIUSO":
@@ -1049,10 +1156,10 @@ def convert_all_checklist_items(task_id):
 
             statements.append((
                 """
-                INSERT INTO tasks (parent_id, title, deadline, execution_date, assegnato, label, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO tasks (parent_id, owner_id, title, deadline, execution_date, assegnato, label, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (task_id, title, deadline, execution_date, assegnato, label, status),
+                (task_id, current_user_id(), title, deadline, execution_date, assegnato, label, status),
             ))
             statements.append(("DELETE FROM checklist_items WHERE id = ?", (item["id"],)))
     except ValueError as e:
@@ -1091,7 +1198,14 @@ def get_planning_blocks():
     # cancellazione "pigra" del passato: basta aprire/ricaricare la vista perché
     # i blocchi di giorni già trascorsi spariscano, nessun cron necessario
     execute_db("DELETE FROM planning_blocks WHERE day < date('now', 'localtime')")
-    rows = query_db("SELECT * FROM planning_blocks ORDER BY day, start_min")
+    rows = query_db(
+        """
+        SELECT pb.* FROM planning_blocks pb JOIN tasks t ON t.id = pb.task_id
+        WHERE t.owner_id = ?
+        ORDER BY pb.day, pb.start_min
+        """,
+        [current_user_id()],
+    )
     return jsonify(rows)
 
 
@@ -1099,7 +1213,7 @@ def get_planning_blocks():
 def create_planning_block():
     data = request.get_json() or {}
     task_id = data.get("task_id")
-    task = get_task(task_id) if task_id is not None else None
+    task = require_owned_task(task_id) if task_id is not None else None
     if task is None:
         return {"error": "Task non trovato"}, 404
     if task["children_count"] > 0:
@@ -1126,7 +1240,7 @@ def create_planning_block():
 
 @app.route("/planning/<int:block_id>", methods=["PUT"])
 def update_planning_block(block_id):
-    block = query_one("SELECT * FROM planning_blocks WHERE id = ?", [block_id])
+    block = get_owned_planning_block(block_id)
     if block is None:
         return {"error": "Blocco non trovato"}, 404
 
@@ -1160,7 +1274,7 @@ def update_planning_block(block_id):
 
 @app.route("/planning/<int:block_id>", methods=["DELETE"])
 def delete_planning_block(block_id):
-    if query_one("SELECT id FROM planning_blocks WHERE id = ?", [block_id]) is None:
+    if get_owned_planning_block(block_id) is None:
         return {"error": "Blocco non trovato"}, 404
     execute_db("DELETE FROM planning_blocks WHERE id = ?", (block_id,))
     return "", 204

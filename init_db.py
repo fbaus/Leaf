@@ -9,10 +9,20 @@ cursor.executescript("""
 DROP TABLE IF EXISTS notes;
 DROP TABLE IF EXISTS task_dependencies;
 DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS users;
+
+CREATE TABLE users (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  username        TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(username) BETWEEN 1 AND 30),
+  password_hash   TEXT NOT NULL,
+  is_superuser    INTEGER NOT NULL DEFAULT 0 CHECK (is_superuser IN (0,1)),
+  created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
 
 CREATE TABLE tasks (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   parent_id       INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+  owner_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   title           TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 60),
   description     TEXT CHECK (description IS NULL OR length(description) <= 300),
   deadline        TEXT,
@@ -27,7 +37,10 @@ CREATE TABLE tasks (
 );
 
 CREATE INDEX idx_tasks_parent_id ON tasks(parent_id);
-CREATE UNIQUE INDEX idx_tasks_focus_unique ON tasks(focus) WHERE focus = 1;
+CREATE INDEX idx_tasks_owner_id ON tasks(owner_id);
+-- un solo task in focus PER UTENTE, non uno globale in tutta l'app: senza owner_id
+-- nella chiave, attivare il focus di un utente spegnerebbe quello di un altro
+CREATE UNIQUE INDEX idx_tasks_focus_unique ON tasks(owner_id) WHERE focus = 1;
 
 CREATE TABLE task_dependencies (
   task_id       INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,

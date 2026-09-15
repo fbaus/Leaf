@@ -5,11 +5,20 @@ import { renderNotesSidePanel } from "./render_notes.js";
 import { openCreateModal, initModal } from "./modal.js";
 import { captureFocus, restoreFocus } from "./focus.js";
 import { refreshGanttIfOpen } from "./render_gantt.js";
+import { fetchMe } from "./api.js";
+import { initLogin, showLoginOverlay } from "./login.js";
 
 const mainPanel = document.getElementById("main-panel");
 const sidePanel = document.getElementById("side-panel");
 const workspace = document.getElementById("workspace");
 const panelResizeHandle = document.getElementById("panel-resize-handle");
+const userInfo = document.getElementById("user-info");
+const currentUsernameEl = document.getElementById("current-username");
+
+function updateUserInfo() {
+  currentUsernameEl.textContent = state.currentUser ? state.currentUser.username : "";
+  userInfo.classList.toggle("hidden", !state.currentUser);
+}
 
 function render() {
   document.body.dataset.view = state.currentView;
@@ -72,7 +81,7 @@ panelResizeHandle.addEventListener("mousedown", (e) => {
   document.addEventListener("mouseup", onMouseUp);
 });
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   document.querySelectorAll(".view-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.currentView = btn.dataset.view;
@@ -96,5 +105,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
   initModal(() => reload());
 
-  reload();
+  // gate di sessione: se /me risponde 401 (nessuna sessione valida) si mostra il login
+  // invece di procedere con reload() — è la primissima chiamata di rete che l'app fa
+  initLogin(async (user) => {
+    state.currentUser = user;
+    updateUserInfo();
+    await reload();
+  });
+
+  try {
+    state.currentUser = await fetchMe();
+    updateUserInfo();
+    await reload();
+  } catch (e) {
+    showLoginOverlay();
+  }
 });

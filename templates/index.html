@@ -13,6 +13,10 @@
       <button class="view-btn active" data-view="albero">Albero</button>
       <button class="view-btn" data-view="foglie">Foglie</button>
     </nav>
+    <div id="user-info" class="hidden">
+      <span id="current-username"></span>
+      <button id="logout-btn" type="button">Esci</button>
+    </div>
   </header>
 
   <div id="toolbar">
@@ -25,6 +29,24 @@
     <div id="main-panel"></div>
     <div id="panel-resize-handle" class="tree-only"></div>
     <div id="side-panel"></div>
+  </div>
+
+  <div id="login-overlay" class="hidden">
+    <div id="login-box">
+      <h2>Accedi</h2>
+      <form id="login-form">
+        <label>Utente
+          <input id="login-username" required autocomplete="username">
+        </label>
+        <label>Password
+          <input id="login-password" type="password" required autocomplete="current-password">
+        </label>
+        <div id="login-error" class="hidden"></div>
+        <div class="modal-actions">
+          <button type="submit">Accedi</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <div id="dependency-picker-overlay" class="hidden">
