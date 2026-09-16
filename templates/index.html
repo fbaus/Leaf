@@ -71,6 +71,22 @@
         <label>Descrizione
           <textarea id="field-description" maxlength="300"></textarea>
         </label>
+        <div class="field-row hidden" id="field-project-code-row">
+          <div id="field-project-code-editable-wrapper">
+            <label>Codice progetto
+              <span class="project-code-inputs">
+                <input id="field-project-code-number" maxlength="3" size="3" placeholder="XXX" inputmode="numeric">
+                <span>-20</span>
+                <input id="field-project-code-year" maxlength="2" size="2" placeholder="AA" inputmode="numeric">
+              </span>
+            </label>
+          </div>
+          <div id="field-project-code-readonly-wrapper">
+            <label>Codice progetto
+              <div id="field-project-code-readonly" class="computed-status"></div>
+            </label>
+          </div>
+        </div>
         <div class="field-row">
           <div id="field-label-wrapper">
             <label>Stato del task

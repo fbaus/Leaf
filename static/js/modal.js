@@ -18,6 +18,12 @@ const fieldEstimatedEditableRow = document.getElementById("field-estimated-edita
 const fieldEstimatedComputedWrapper = document.getElementById("field-estimated-computed-wrapper");
 const fieldEstimatedComputed = document.getElementById("field-estimated-computed");
 const fieldEstimatedDays = document.getElementById("field-estimated-days");
+const fieldProjectCodeRow = document.getElementById("field-project-code-row");
+const fieldProjectCodeEditableWrapper = document.getElementById("field-project-code-editable-wrapper");
+const fieldProjectCodeReadonlyWrapper = document.getElementById("field-project-code-readonly-wrapper");
+const fieldProjectCodeReadonly = document.getElementById("field-project-code-readonly");
+const fieldProjectCodeNumber = document.getElementById("field-project-code-number");
+const fieldProjectCodeYear = document.getElementById("field-project-code-year");
 const fieldLabelWrapper = document.getElementById("field-label-wrapper");
 const fieldLabel = document.getElementById("field-label");
 const fieldStatusOpenWrapper = document.getElementById("field-status-open-wrapper");
@@ -333,11 +339,40 @@ export function openCreateModal(parentId) {
   fieldDatesComputedWrapper.style.display = "none";
   fieldEstimatedEditableRow.style.display = "flex";
   fieldEstimatedComputedWrapper.style.display = "none";
+  updateProjectCodeVisibility(null, parentId === null);
   checklistWrapper.classList.add("hidden"); // serve un nodo già esistente
   fieldFocusWrapper.classList.add("hidden"); // idem: il focus si attiva solo su un nodo esistente
 
   overlay.classList.remove("hidden");
   fieldTitle.focus();
+}
+
+function parseProjectCode(code) {
+  const match = code ? /^(\d{3})-20(\d{2})$/.exec(code) : null;
+  return { number: match ? match[1] : "", year: match ? match[2] : "" };
+}
+
+// il codice progetto esiste solo sui nodi radice (parent_id nullo): per chiunque altro la
+// riga resta nascosta. Su una radice, solo gli utenti autorizzati (state.currentUser.
+// can_set_project_code, arrivato da /login o /me) vedono i due campi editabili — gli altri
+// vedono il valore in sola lettura, stesso trattamento "computed-status" già usato per
+// date/tempo stimato di un ramo
+function updateProjectCodeVisibility(node, isRoot) {
+  fieldProjectCodeRow.style.display = isRoot ? "flex" : "none";
+  if (!isRoot) return;
+
+  const authorized = !!(state.currentUser && state.currentUser.can_set_project_code);
+  fieldProjectCodeEditableWrapper.style.display = authorized ? "block" : "none";
+  fieldProjectCodeReadonlyWrapper.style.display = authorized ? "none" : "block";
+
+  const code = node ? node.project_code || null : null;
+  if (authorized) {
+    const { number, year } = parseProjectCode(code);
+    fieldProjectCodeNumber.value = number;
+    fieldProjectCodeYear.value = year;
+  } else {
+    fieldProjectCodeReadonly.textContent = code || "—";
+  }
 }
 
 // campi la cui visibilità/valore dipendono dal tipo di nodo (foglia o ramo): vanno
@@ -370,6 +405,8 @@ function applyNodeTypeFields(node) {
   } else {
     fieldEstimatedComputed.textContent = node.estimated_days != null ? `${node.estimated_days} giorni` : "—";
   }
+
+  updateProjectCodeVisibility(node, node.parent_id === null);
 
   // il focus è consentito solo su una foglia APERTA, come nel menu contestuale dell'albero
   fieldFocus.checked = !!node.focus;
@@ -449,6 +486,15 @@ async function submitForm() {
     payload.deadline = fieldDeadline.value || null;
     payload.execution_date = fieldExecutionDate.value || null;
     payload.estimated_days = fieldEstimatedDays.value ? Number(fieldEstimatedDays.value) : null;
+  }
+
+  // solo su un nodo radice e solo per un utente autorizzato il campo è editabile (vedi
+  // updateProjectCodeVisibility) — altrimenti non fa parte del payload, il valore esistente
+  // resta invariato
+  if (fieldProjectCodeEditableWrapper.style.display === "block") {
+    const number = fieldProjectCodeNumber.value.trim();
+    const year = fieldProjectCodeYear.value.trim();
+    payload.project_code = number || year ? `${number}-20${year}` : null;
   }
 
   if (fieldLabelWrapper.style.display === "block") {

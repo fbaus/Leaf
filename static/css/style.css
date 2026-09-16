@@ -1134,6 +1134,17 @@ td.leaf-title-cell:hover {
   width: 14em;
 }
 
+.project-code-inputs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.project-code-inputs input {
+  width: 3.5em;
+  text-align: center;
+}
+
 /* righe di campi affiancati: ogni campo resta largo quanto il suo contenuto, non si
    allunga per riempire lo spazio residuo della riga */
 .field-row {

@@ -1,0 +1,49 @@
+COMANDI GESTIONE UTENTI — Leaf
+================================
+
+Tutti i comandi vanno lanciati da terminale, dalla cartella del progetto:
+
+    cd C:\Users\francesco\Documents\CHEMITEC\Python\Leaf
+    python manage_users.py <comando> [opzioni]
+
+Le password non vengono mai mostrate a schermo e vengono sempre richieste
+due volte (conferma).
+
+
+CREARE UN NUOVO UTENTE
+-----------------------
+    python manage_users.py create-user --username nomeutente
+
+Per creare un utente SUPERUSER (amministrazione):
+    python manage_users.py create-user --username nomeutente --superuser
+
+
+ELENCARE TUTTI GLI UTENTI
+--------------------------
+    python manage_users.py list-users
+
+Mostra id, username, eventuali ruoli speciali fra parentesi quadre
+([superuser], [codici progetto]) e data di creazione.
+
+
+CAMBIARE LA PASSWORD DI UN UTENTE ESISTENTE
+---------------------------------------------
+    python manage_users.py set-password --username nomeutente
+
+
+AUTORIZZARE UN UTENTE A MODIFICARE I CODICI PROGETTO
+-------------------------------------------------------
+    python manage_users.py grant-project-code --username nomeutente
+
+Per togliere l'autorizzazione:
+    python manage_users.py revoke-project-code --username nomeutente
+
+Nota: essere superuser NON dà automaticamente questa autorizzazione —
+vanno concesse separatamente.
+
+
+ESEMPIO COMPLETO
+------------------
+    python manage_users.py create-user --username mario
+    python manage_users.py grant-project-code --username mario
+    python manage_users.py list-users

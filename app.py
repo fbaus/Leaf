@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import date, datetime, timedelta
 
 from flask import Flask, jsonify, request, render_template, send_file, session
@@ -126,7 +127,12 @@ def login():
     session.clear()
     session["user_id"] = user["id"]
     session.permanent = True
-    return {"id": user["id"], "username": user["username"], "is_superuser": bool(user["is_superuser"])}
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "is_superuser": bool(user["is_superuser"]),
+        "can_set_project_code": bool(user["can_set_project_code"]),
+    }
 
 
 @app.route("/logout", methods=["POST"])
@@ -137,8 +143,15 @@ def logout():
 
 @app.route("/me", methods=["GET"])
 def me():
-    user = query_one("SELECT id, username, is_superuser FROM users WHERE id = ?", [current_user_id()])
-    return {"id": user["id"], "username": user["username"], "is_superuser": bool(user["is_superuser"])}
+    user = query_one(
+        "SELECT id, username, is_superuser, can_set_project_code FROM users WHERE id = ?", [current_user_id()]
+    )
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "is_superuser": bool(user["is_superuser"]),
+        "can_set_project_code": bool(user["can_set_project_code"]),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +232,36 @@ def validate_estimated_days(value):
     if value <= 0:
         raise ValueError("Tempo stimato deve essere maggiore di zero")
     return round(value, 1)
+
+
+PROJECT_CODE_RE = re.compile(r"^\d{3}-20\d{2}$")
+
+
+def validate_project_code(value):
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str) or not PROJECT_CODE_RE.match(value):
+        raise ValueError("Codice progetto non valido: formato richiesto XXX-20AA, solo numeri")
+    return value
+
+
+def current_user_can_set_project_code():
+    user = query_one("SELECT can_set_project_code FROM users WHERE id = ?", [current_user_id()])
+    return bool(user and user["can_set_project_code"])
+
+
+def find_project_code_owner_username(project_code, exclude_task_id=None):
+    """Unica query che attraversa deliberatamente i confini di owner_id: la segnalazione
+    "codice già usato da [utente]" richiede di vedere chi, fra TUTTI gli utenti, ha già
+    quel codice — è l'eccezione esplicitamente voluta dalla specifica, non una dimenticanza
+    del filtro per-owner applicato ovunque altrove."""
+    query = "SELECT u.username FROM tasks t JOIN users u ON u.id = t.owner_id WHERE t.project_code = ?"
+    args = [project_code]
+    if exclude_task_id is not None:
+        query += " AND t.id != ?"
+        args.append(exclude_task_id)
+    row = query_one(query, args)
+    return row["username"] if row else None
 
 
 def enforce_open_task_rules(fields, execution_date, deadline, assegnato, dependency_ids):
@@ -630,6 +673,7 @@ def create_task():
         label = validate_label(data.get("label")) or "APERTO"
         status = validate_status(data.get("status"))
         estimated_days = validate_estimated_days(data.get("estimated_days"))
+        project_code = validate_project_code(data.get("project_code"))
         dependency_ids = [int(x) for x in data.get("dependency_ids") or []]
 
         fields = {}
@@ -654,14 +698,23 @@ def create_task():
         if parent["children_count"] == 0 and parent["label"] == "CHIUSO":
             return {"error": "Non è possibile creare sotto-attività da questa foglia (chiusa)"}, 409
 
+    if project_code is not None:
+        if parent_id is not None:
+            return {"error": "Il codice progetto è impostabile solo su un progetto radice"}, 409
+        if not current_user_can_set_project_code():
+            return {"error": "Non sei autorizzato a impostare il codice progetto"}, 403
+        existing_owner = find_project_code_owner_username(project_code)
+        if existing_owner is not None:
+            return {"error": f"Codice progetto già utilizzato da {existing_owner}."}, 409
+
     new_id = execute_db(
         """
         INSERT INTO tasks (parent_id, owner_id, title, description, deadline, execution_date,
-                            assegnato, label, status, estimated_days)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            assegnato, label, status, estimated_days, project_code)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (parent_id, current_user_id(), title, description, deadline, execution_date, assegnato, label, status,
-         estimated_days),
+         estimated_days, project_code),
     )
 
     statements = []
@@ -715,6 +768,8 @@ def update_task(task_id):
             fields["status"] = validate_status(data["status"])
         if "estimated_days" in data:
             fields["estimated_days"] = validate_estimated_days(data["estimated_days"])
+        if "project_code" in data:
+            fields["project_code"] = validate_project_code(data["project_code"])
     except ValueError as e:
         return {"error": str(e)}, 400
 
@@ -728,6 +783,16 @@ def update_task(task_id):
     label = fields.get("label", task["label"])
     if (fields.get("label") is not None or fields.get("status") is not None) and task["children_count"] > 0:
         return {"error": "Un nodo con figli non può avere status/label"}, 409
+
+    if "project_code" in fields:
+        if task["parent_id"] is not None:
+            return {"error": "Il codice progetto è impostabile solo su un progetto radice"}, 409
+        if not current_user_can_set_project_code():
+            return {"error": "Non sei autorizzato a impostare il codice progetto"}, 403
+        if fields["project_code"] is not None:
+            existing_owner = find_project_code_owner_username(fields["project_code"], exclude_task_id=task_id)
+            if existing_owner is not None:
+                return {"error": f"Codice progetto già utilizzato da {existing_owner}."}, 409
 
     execution_date = fields.get("execution_date", task["execution_date"])
     deadline = fields.get("deadline", task["deadline"])
@@ -855,7 +920,13 @@ def move_task(task_id):
         return {"status": "ok"}
 
     old_parent_id = task["parent_id"]
-    statements = [("UPDATE tasks SET parent_id = ? WHERE id = ?", (new_parent_id, task_id))]
+    # un nodo radice con codice progetto che smette di essere radice (guadagna un padre)
+    # perde il codice nello stesso momento — simmetrico al "lo perde se spostato fuori da
+    # un progetto codificato": il codice ha senso solo su un nodo che resta radice
+    if task["project_code"] is not None and new_parent_id is not None:
+        statements = [("UPDATE tasks SET parent_id = ?, project_code = NULL WHERE id = ?", (new_parent_id, task_id))]
+    else:
+        statements = [("UPDATE tasks SET parent_id = ? WHERE id = ?", (new_parent_id, task_id))]
 
     # se il nuovo padre era una foglia, diventa un ramo: stessa transizione già
     # usata in create_task quando una foglia guadagna il primo figlio

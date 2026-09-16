@@ -12,11 +12,12 @@ DROP TABLE IF EXISTS tasks;
 DROP TABLE IF EXISTS users;
 
 CREATE TABLE users (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  username        TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(username) BETWEEN 1 AND 30),
-  password_hash   TEXT NOT NULL,
-  is_superuser    INTEGER NOT NULL DEFAULT 0 CHECK (is_superuser IN (0,1)),
-  created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+  username               TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(username) BETWEEN 1 AND 30),
+  password_hash          TEXT NOT NULL,
+  is_superuser           INTEGER NOT NULL DEFAULT 0 CHECK (is_superuser IN (0,1)),
+  can_set_project_code   INTEGER NOT NULL DEFAULT 0 CHECK (can_set_project_code IN (0,1)),
+  created_at             TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
 CREATE TABLE tasks (
@@ -34,6 +35,9 @@ CREATE TABLE tasks (
   urgent          INTEGER NOT NULL DEFAULT 0 CHECK (urgent IN (0,1)),
   execution_date  TEXT,
   estimated_days  REAL CHECK (estimated_days IS NULL OR estimated_days > 0),
+  -- solo un nodo radice (parent_id NULL) può avere un codice progetto: i discendenti lo
+  -- ereditano per calcolo (risalendo la radice), mai copiato/memorizzato su di loro
+  project_code    TEXT CHECK (project_code IS NULL OR (parent_id IS NULL AND project_code GLOB '[0-9][0-9][0-9]-20[0-9][0-9]')),
   created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
@@ -42,6 +46,9 @@ CREATE INDEX idx_tasks_owner_id ON tasks(owner_id);
 -- un solo task in focus PER UTENTE, non uno globale in tutta l'app: senza owner_id
 -- nella chiave, attivare il focus di un utente spegnerebbe quello di un altro
 CREATE UNIQUE INDEX idx_tasks_focus_unique ON tasks(owner_id) WHERE focus = 1;
+-- codice progetto unico in tutta l'app (fra tutti gli utenti, non solo per owner): è
+-- proprio la segnalazione della collisione fra utenti diversi il punto della funzionalità
+CREATE UNIQUE INDEX idx_tasks_project_code ON tasks(project_code) WHERE project_code IS NOT NULL;
 
 CREATE TABLE task_dependencies (
   task_id       INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,

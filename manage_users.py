@@ -5,6 +5,8 @@ Uso:
   python manage_users.py create-user --username mario [--superuser]
   python manage_users.py list-users
   python manage_users.py set-password --username mario
+  python manage_users.py grant-project-code --username mario
+  python manage_users.py revoke-project-code --username mario
 """
 
 import argparse
@@ -48,15 +50,36 @@ def create_user(username, is_superuser):
 def list_users():
     conn = connect()
     rows = conn.execute(
-        "SELECT id, username, is_superuser, created_at FROM users ORDER BY id"
+        "SELECT id, username, is_superuser, can_set_project_code, created_at FROM users ORDER BY id"
     ).fetchall()
     conn.close()
     if not rows:
         print("Nessun utente registrato.")
         return
-    for id_, username, is_superuser, created_at in rows:
-        tag = " [superuser]" if is_superuser else ""
+    for id_, username, is_superuser, can_set_project_code, created_at in rows:
+        tags = []
+        if is_superuser:
+            tags.append("superuser")
+        if can_set_project_code:
+            tags.append("codici progetto")
+        tag = f" [{', '.join(tags)}]" if tags else ""
         print(f"{id_}\t{username}{tag}\t{created_at}")
+
+
+def set_project_code_authorization(username, allowed):
+    conn = connect()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM users WHERE username = ?", (username,))
+    row = cur.fetchone()
+    if row is None:
+        print(f'Nessun utente "{username}".')
+        conn.close()
+        return
+    cur.execute("UPDATE users SET can_set_project_code = ? WHERE id = ?", (1 if allowed else 0, row[0]))
+    conn.commit()
+    conn.close()
+    verb = "autorizzato a" if allowed else "non più autorizzato a"
+    print(f'Utente "{username}" {verb} modificare i codici progetto.')
 
 
 def set_password(username):
@@ -96,6 +119,12 @@ def main():
     p_setpw = sub.add_parser("set-password")
     p_setpw.add_argument("--username", required=True)
 
+    p_grant = sub.add_parser("grant-project-code")
+    p_grant.add_argument("--username", required=True)
+
+    p_revoke = sub.add_parser("revoke-project-code")
+    p_revoke.add_argument("--username", required=True)
+
     args = parser.parse_args()
 
     if args.command == "create-user":
@@ -104,6 +133,10 @@ def main():
         list_users()
     elif args.command == "set-password":
         set_password(args.username)
+    elif args.command == "grant-project-code":
+        set_project_code_authorization(args.username, True)
+    elif args.command == "revoke-project-code":
+        set_project_code_authorization(args.username, False)
 
 
 if __name__ == "__main__":

@@ -111,6 +111,15 @@ export function rootTitle(node, tasksById) {
   return root ? root.title : "—";
 }
 
+// il codice progetto vive solo sul nodo radice (mai copiato sui discendenti): un
+// discendente lo "eredita" risalendo alla radice qui, stessa tecnica di rootTitle — così
+// uno spostamento fra progetti aggiorna il codice effettivo senza dover propagare nulla
+export function rootProjectCode(node, tasksById) {
+  if (node.parent_id === null) return node.project_code || null;
+  const root = tasksById[rootIdOf(node, tasksById)];
+  return root ? root.project_code || null : null;
+}
+
 export function matchesSearch(node, text) {
   if (!text) return true;
   const needle = text.toLowerCase();
