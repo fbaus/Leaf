@@ -1,4 +1,7 @@
-import { createTask, updateTask, setFocus, recomputeRollup } from "./api.js";
+import {
+  createTask, updateTask, setFocus, recomputeRollup,
+  fetchUsers, delegateTask, acceptDelegation, declineDelegation, ackDelegationNotice,
+} from "./api.js";
 import { STATUS_META, CLOSED_STATUSES, isLeaf, buildTree } from "./utils.js";
 import { state, reload } from "./state.js";
 import { renderChecklist } from "./checklist.js";
@@ -31,10 +34,22 @@ const fieldStatusComputed = document.getElementById("field-status-computed");
 const fieldStatusClosedWrapper = document.getElementById("field-status-closed-wrapper");
 const fieldStatus = document.getElementById("field-status");
 const fieldAssegnato = document.getElementById("field-assegnato");
+const fieldAssegnazioneEditableWrapper = document.getElementById("field-assegnazione-editable-wrapper");
+const fieldAssegnazioneInternaControls = document.getElementById("field-assegnazione-interna-controls");
+const fieldAssegnatoInterna = document.getElementById("field-assegnato-interna");
+const delegaBtn = document.getElementById("delega-btn");
+const fieldAssegnazioneExecutorWrapper = document.getElementById("field-assegnazione-executor-wrapper");
+const fieldAssegnazioneExecutorInfo = document.getElementById("field-assegnazione-executor-info");
+const fieldAssegnazioneExecutorActions = document.getElementById("field-assegnazione-executor-actions");
+const acceptDelegationBtn = document.getElementById("accept-delegation-btn");
+const declineDelegationBtn = document.getElementById("decline-delegation-btn");
+const fieldAssegnazioneCommittenteWrapper = document.getElementById("field-assegnazione-committente-wrapper");
+const fieldAssegnazioneCommittenteInfo = document.getElementById("field-assegnazione-committente-info");
 const dependenciesSummary = document.getElementById("dependencies-summary");
 const dependenciesPickerBtn = document.getElementById("dependencies-picker-btn");
 const fieldFocusWrapper = document.getElementById("field-focus-wrapper");
 const fieldFocus = document.getElementById("field-focus");
+const nodeFieldset = document.getElementById("node-fieldset");
 const cancelBtn = document.getElementById("modal-cancel");
 const modalSubmit = document.getElementById("modal-submit");
 const checklistWrapper = document.getElementById("checklist-wrapper");
@@ -112,6 +127,8 @@ function applyOpenTaskRules() {
   const canAssign = !!(ex && dl);
   fieldAssegnato.disabled = !canAssign;
   if (!canAssign) fieldAssegnato.value = "";
+  fieldAssegnatoInterna.disabled = !canAssign;
+  delegaBtn.disabled = !canAssign;
 }
 
 fieldDeadline.addEventListener("change", () => {
@@ -172,6 +189,110 @@ function updateLabelVisibility(node) {
   }
 }
 fieldLabel.addEventListener("change", () => updateLabelVisibility(null));
+
+// ---------------------------------------------------------------------------
+// Assegnazione: Interna (utente registrato) / Esterna (nome libero), a 3 stati —
+// editabile (owner, non delegato), sola lettura per l'esecutore (delegato interno,
+// con eventuali Accetta/Rifiuta), sola lettura per il committente
+// ---------------------------------------------------------------------------
+
+async function populateInternaSelect() {
+  try {
+    const users = await fetchUsers();
+    const current = fieldAssegnatoInterna.value;
+    fieldAssegnatoInterna.innerHTML = '<option value="">—</option>';
+    users.forEach((u) => {
+      const opt = document.createElement("option");
+      opt.value = u.username;
+      opt.textContent = u.username;
+      fieldAssegnatoInterna.appendChild(opt);
+    });
+    fieldAssegnatoInterna.value = current;
+  } catch (err) {
+    // silenzioso: se la lista utenti non arriva resta solo l'opzione vuota,
+    // non deve bloccare l'apertura del resto del modale
+  }
+}
+
+function applyAssegnazioneCreateMode() {
+  fieldAssegnazioneEditableWrapper.style.display = "block";
+  fieldAssegnazioneInternaControls.style.display = "none";
+  delegaBtn.style.display = "none";
+  fieldAssegnazioneExecutorWrapper.classList.add("hidden");
+  fieldAssegnazioneCommittenteWrapper.classList.add("hidden");
+}
+
+// nodo esistente: 3 stati mutuamente esclusivi in base a chi guarda e se è già delegato
+// internamente (la delega esterna, che non tocca owner_id, resta nel ramo "editabile")
+function applyAssegnazioneSection(node, isOwner) {
+  fieldAssegnazioneEditableWrapper.style.display = "none";
+  fieldAssegnazioneExecutorWrapper.classList.add("hidden");
+  fieldAssegnazioneCommittenteWrapper.classList.add("hidden");
+  if (!isLeaf(node)) return; // solo le foglie possono essere delegate
+
+  const delegatedInternally = node.executor_user_id != null;
+  const stato = node.delegation_status === "accettata" ? "accettata" : "in attesa";
+
+  if (!isOwner) {
+    fieldAssegnazioneCommittenteWrapper.classList.remove("hidden");
+    fieldAssegnazioneCommittenteInfo.textContent = delegatedInternally
+      ? `Delegato a: ${node.executor_username} (${stato})`
+      : "—";
+    return;
+  }
+
+  if (delegatedInternally) {
+    fieldAssegnazioneExecutorWrapper.classList.remove("hidden");
+    fieldAssegnazioneExecutorInfo.textContent = `Delegato da: ${node.committente_username} (${stato})`;
+    fieldAssegnazioneExecutorActions.classList.toggle("hidden", node.delegation_status !== "in_attesa");
+  } else {
+    fieldAssegnazioneEditableWrapper.style.display = "block";
+    fieldAssegnazioneInternaControls.style.display = "";
+    delegaBtn.style.display = "";
+    fieldAssegnato.value = node.assegnato || "";
+    fieldAssegnatoInterna.value = "";
+    populateInternaSelect();
+  }
+}
+
+delegaBtn.addEventListener("click", async () => {
+  if (editingId === null) return;
+  const executorUsername = fieldAssegnatoInterna.value || null;
+  const externalName = fieldAssegnato.value.trim() || null;
+  if (executorUsername && externalName) {
+    alert("Compila solo uno dei due campi (Interna o Esterna)");
+    return;
+  }
+  try {
+    await delegateTask(editingId, { executor_username: executorUsername, external_name: externalName });
+    closeModal();
+    afterSaveCallback();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+acceptDelegationBtn.addEventListener("click", async () => {
+  if (editingId === null) return;
+  try {
+    await acceptDelegation(editingId);
+    closeModal();
+    afterSaveCallback();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+declineDelegationBtn.addEventListener("click", async () => {
+  if (editingId === null) return;
+  try {
+    await declineDelegation(editingId);
+    closeModal();
+    afterSaveCallback();
+  } catch (err) {
+    alert(err.message);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Selettore dipendenze (ad albero, foglie e rami selezionabili, espandibile/collassabile)
@@ -330,6 +451,9 @@ export function openCreateModal(parentId) {
 
   titleEl.textContent = parentId === null ? "Nuovo progetto" : "Nuova sotto-attività";
   form.reset();
+  nodeFieldset.disabled = false;
+  modalSubmit.style.display = "";
+  applyAssegnazioneCreateMode();
   fieldLabelWrapper.style.display = "block";
   fieldLabel.value = "APERTO";
   fieldLabel.disabled = false;
@@ -381,7 +505,6 @@ function updateProjectCodeVisibility(node, isRoot) {
 function applyNodeTypeFields(node) {
   const leaf = isLeaf(node);
   editingIsLeaf = leaf;
-  fieldAssegnato.value = node.assegnato || "";
   fieldLabelWrapper.style.display = leaf ? "block" : "none";
   fieldLabel.disabled = !leaf;
   fieldLabel.value = leaf ? node.label || "APERTO" : "APERTO";
@@ -415,8 +538,8 @@ function applyNodeTypeFields(node) {
 
 // la checklist esiste solo sulle foglie: se una trasformazione in-modale fa
 // diventare il nodo un ramo, la sezione va nascosta senza dover richiudere il modale
-function updateChecklistVisibility(node) {
-  if (isLeaf(node)) {
+function updateChecklistVisibility(node, isOwner = true) {
+  if (isLeaf(node) && isOwner) {
     checklistWrapper.classList.remove("hidden");
     renderChecklist(checklistContainer, node.id, async () => {
       await afterSaveCallback();
@@ -435,19 +558,34 @@ function updateChecklistVisibility(node) {
 export async function openEditModal(node) {
   mode = "edit";
   editingId = node.id;
+  const isOwner = node.owner_id === state.currentUser?.id;
 
   // per un ramo, ricalcola dal basso il rollup di tutto il sottoalbero prima di mostrare
   // "Date (calcolate automaticamente dai figli)": auto-guarigione contro eventuali derive,
   // non solo l'aggiornamento incrementale già garantito a ogni singola modifica. Per una
-  // foglia non serve (le sue date sono sue, non un rollup) e si evita il giro di rete
+  // foglia non serve (le sue date sono sue, non un rollup) e si evita il giro di rete.
+  // Solo l'owner può richiamarla (route owner-gated): per il committente in sola lettura
+  // si salterebbe comunque con un errore silenzioso, quindi va condizionata qui.
   let fresh = node;
-  if (node.children_count > 0) {
+  if (node.children_count > 0 && isOwner) {
     try {
       await recomputeRollup(node.id);
       await reload();
       fresh = state.tasks.find((t) => t.id === node.id) || node;
     } catch (err) {
       alert(err.message);
+    }
+  }
+
+  // il committente apre la configurazione: è il trigger che spegne la notifica temporanea
+  // di cambio deadline/accettazione (non il salvataggio, che per lui non esiste)
+  if (!isOwner && fresh.delegation_notice) {
+    try {
+      await ackDelegationNotice(fresh.id);
+      await reload();
+      fresh = state.tasks.find((t) => t.id === fresh.id) || fresh;
+    } catch (err) {
+      // silenzioso: non deve impedire l'apertura in sola lettura
     }
   }
 
@@ -462,7 +600,11 @@ export async function openEditModal(node) {
   fieldFocusWrapper.classList.remove("hidden");
 
   applyNodeTypeFields(fresh);
-  updateChecklistVisibility(fresh);
+  applyAssegnazioneSection(fresh, isOwner);
+  updateChecklistVisibility(fresh, isOwner);
+
+  nodeFieldset.disabled = !isOwner;
+  modalSubmit.style.display = isOwner ? "" : "none";
 
   overlay.classList.remove("hidden");
   fieldTitle.focus();
@@ -500,7 +642,11 @@ async function submitForm() {
   if (fieldLabelWrapper.style.display === "block") {
     payload.label = fieldLabel.value;
     if (fieldLabel.value === "APERTO") {
-      payload.assegnato = fieldAssegnato.value.trim() || null;
+      // in modifica, l'assegnazione (interna o esterna) passa dal bottone "Delega"
+      // dedicato, non dal Salva generale — qui resta solo per la creazione
+      if (mode === "create") {
+        payload.assegnato = fieldAssegnato.value.trim() || null;
+      }
       payload.dependency_ids = [...selectedDependencyIds];
     } else {
       // chiudendo un task manteniamo assegnato/dipendenze così com'erano

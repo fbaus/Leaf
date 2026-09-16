@@ -65,6 +65,7 @@
     <div id="modal-box">
       <h2 id="modal-title">Configura nodo</h2>
       <form id="node-form">
+      <fieldset id="node-fieldset">
         <label>Titolo
           <input id="field-title" maxlength="60" required>
         </label>
@@ -130,10 +131,35 @@
             <div id="field-estimated-computed" class="computed-status"></div>
           </label>
         </div>
-        <div class="field-row">
-          <label>Assegnato
-            <input id="field-assegnato" maxlength="20" placeholder="richiede EX e DL">
-          </label>
+        <div class="field-row" id="field-assegnazione-row">
+          <div id="field-assegnazione-editable-wrapper">
+            <span class="assegnazione-title">Assegnazione</span>
+            <div id="field-assegnazione-interna-controls">
+              <label>Interna
+                <select id="field-assegnato-interna">
+                  <option value="">—</option>
+                </select>
+              </label>
+            </div>
+            <label>Esterna
+              <input id="field-assegnato" maxlength="20" placeholder="richiede EX e DL">
+            </label>
+            <button type="button" id="delega-btn">Delega</button>
+          </div>
+          <div id="field-assegnazione-executor-wrapper" class="hidden">
+            <label>Assegnazione
+              <div id="field-assegnazione-executor-info" class="computed-status"></div>
+            </label>
+            <div id="field-assegnazione-executor-actions" class="hidden">
+              <button type="button" id="accept-delegation-btn">Accetta</button>
+              <button type="button" id="decline-delegation-btn">Rifiuta</button>
+            </div>
+          </div>
+          <div id="field-assegnazione-committente-wrapper" class="hidden">
+            <label>Assegnazione
+              <div id="field-assegnazione-committente-info" class="computed-status"></div>
+            </label>
+          </div>
           <div id="field-dependencies-wrapper">
             <label>Dipendenze
               <button type="button" id="dependencies-picker-btn">+</button>
@@ -146,6 +172,7 @@
             <input id="field-focus" type="checkbox"> Focus
           </label>
         </div>
+      </fieldset>
         <div class="modal-actions">
           <button type="submit" id="modal-submit">Salva</button>
           <button type="button" id="modal-cancel">Annulla</button>

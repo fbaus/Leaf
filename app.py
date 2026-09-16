@@ -27,6 +27,12 @@ STATUS_INTERROTTO = 10
 
 CLOSED_STATUSES = {STATUS_QUARANTENA, STATUS_COMPLETATO, STATUS_INTERROTTO}
 
+DELEGATION_IN_ATTESA = "in_attesa"
+DELEGATION_ACCETTATA = "accettata"
+DELEGATION_NOTICE_POSTICIPATA = "posticipata"
+DELEGATION_NOTICE_ANTICIPATA = "anticipata"
+DELEGATION_NOTICE_ACCETTATA = "accettata"
+
 # expired non può essere una colonna GENERATED in SQLite perché date('now')
 # e' considerata non-deterministica: va calcolata in ogni query.
 # Ha senso solo per i task APERTI (i CHIUSI sono terminati).
@@ -112,6 +118,26 @@ def get_owned_planning_block(block_id):
         WHERE pb.id = ? AND t.owner_id = ?
         """,
         [block_id, current_user_id()],
+    )
+
+
+def require_visible_task(task_id):
+    """Come require_owned_task, ma include anche il committente di un task delegato
+    (sola lettura + Note): usata solo dove la visibilità del committente deve estendersi
+    oltre il filtro owner-only standard."""
+    task = get_task(task_id)
+    if task is None or (task["owner_id"] != current_user_id() and task["committente_user_id"] != current_user_id()):
+        return None
+    return task
+
+
+def get_visible_note(note_id):
+    return query_one(
+        """
+        SELECT n.* FROM notes n JOIN tasks t ON t.id = n.task_id
+        WHERE n.id = ? AND (t.owner_id = ? OR t.committente_user_id = ?)
+        """,
+        [note_id, current_user_id(), current_user_id()],
     )
 
 
@@ -278,7 +304,7 @@ def enforce_open_task_rules(fields, execution_date, deadline, assegnato, depende
     return execution_date
 
 
-def compute_open_status(execution_date, deadline, assegnato, dep_statuses, today):
+def _compute_open_status_base(execution_date, deadline, assegnato, dep_statuses, today):
     """Calcola (status, escalato) per un task APERTO. Nessuna ricorsione: dep_statuses
     sono valori già memorizzati (uno stato 'risolvente' è sempre 9/10, scritto a mano
     su un task CHIUSO, mai un valore da ricalcolare a sua volta).
@@ -315,6 +341,17 @@ def compute_open_status(execution_date, deadline, assegnato, dep_statuses, today
     return STATUS_ATTIVO, True
 
 
+def compute_open_status(execution_date, deadline, assegnato, dep_statuses, today, is_delegated_internally=False):
+    """Wrapper su _compute_open_status_base: per un task delegato internamente (owner
+    corrente = esecutore) la progressione di stato resta quella normale, ma una volta
+    superata la deadline lo stato passa comunque a IN RITARDO — a differenza della delega
+    esterna (`assegnato`), che segue invece il binario DELEGATO/IN RITARDO invariato."""
+    status, escalated = _compute_open_status_base(execution_date, deadline, assegnato, dep_statuses, today)
+    if is_delegated_internally and deadline is not None and today >= deadline and status != STATUS_IN_RITARDO:
+        return STATUS_IN_RITARDO, False
+    return status, escalated
+
+
 def resolve_dependency_status(dep_id, tasks_by_id, children_by_parent, cache):
     """Status 'effettivo' di una dipendenza ai fini della risoluzione: per una foglia è il
     suo status reale; per un ramo si calcola ricorsivamente dai figli (foglie o rami), con
@@ -347,8 +384,9 @@ def compute_estimated_days_rollup(node_id, tasks_by_id, children_by_parent, cach
     antenato, anche se il suo valore resta salvato e visibile su se stessa); per un ramo è
     la somma ricorsiva del tempo stimato dei figli attivi (foglie APERTE o altri rami — un
     ramo non ha mai una label propria, quindi conta sempre come "attivo" ai fini di questo
-    calcolo). Nessuna dipendenza dalle deleghe qui: quel filtro ("non delegate") arriva con
-    la Fase 4.
+    calcolo). Una foglia delegata (esterna via `assegnato`, o interna via
+    `executor_user_id`) è esclusa dal calcolo esattamente come una foglia CHIUSA: il tempo
+    stimato passa sotto la responsabilità dell'esecutore, non è più "nostro" da sommare.
 
     Se anche un solo figlio attivo (foglia aperta o ramo) non ha un valore determinato —
     foglia senza stima, o ramo il cui calcolo è a sua volta indeterminato — l'intero nodo
@@ -365,7 +403,7 @@ def compute_estimated_days_rollup(node_id, tasks_by_id, children_by_parent, cach
 
     active_children = [
         c for c in children_by_parent.get(node_id, [])
-        if not (c["children_count"] == 0 and c["label"] != "APERTO")
+        if not (c["children_count"] == 0 and (c["label"] != "APERTO" or c["assegnato"] or c["executor_user_id"]))
     ]
     if not active_children:
         result = None
@@ -595,11 +633,16 @@ def get_tasks():
                {EXPIRED_SQL},
                {DEADLINE_APPROACHING_SQL}
         FROM tasks t
-        WHERE t.owner_id = ?
+        WHERE t.owner_id = ? OR t.committente_user_id = ?
         ORDER BY t.id
         """,
-        [current_user_id()],
+        [current_user_id(), current_user_id()],
     )
+
+    users_by_id = {u["id"]: u["username"] for u in query_db("SELECT id, username FROM users")}
+    for t in tasks:
+        t["committente_username"] = users_by_id.get(t["committente_user_id"])
+        t["executor_username"] = users_by_id.get(t["executor_user_id"])
 
     task_ids = {t["id"] for t in tasks}
     deps_by_task = {}
@@ -626,7 +669,8 @@ def get_tasks():
                 for d in t["dependency_ids"] if d in tasks_by_id
             ]
             computed_status, escalated = compute_open_status(
-                t["execution_date"], t["deadline"], t["assegnato"], dep_statuses, today
+                t["execution_date"], t["deadline"], t["assegnato"], dep_statuses, today,
+                is_delegated_internally=t["executor_user_id"] is not None,
             )
             t["status"] = computed_status
             t["escalation"] = escalated and not t["escalation_seen"]
@@ -838,6 +882,13 @@ def update_task(task_id):
     else:
         fields["escalation_seen"] = 1
 
+    # l'esecutore può sempre spostare la deadline di un task delegato: il committente deve
+    # accorgersene subito, quindi il titolo si colora finché non apre la configurazione
+    if task["committente_user_id"] is not None and new_dl != task["deadline"] and new_dl and task["deadline"]:
+        fields["delegation_notice"] = (
+            DELEGATION_NOTICE_POSTICIPATA if new_dl > task["deadline"] else DELEGATION_NOTICE_ANTICIPATA
+        )
+
     statements = []
     if fields:
         set_clause = ", ".join(f"{key} = ?" for key in fields)
@@ -982,9 +1033,132 @@ def delete_task(task_id):
 
 @app.route("/tasks/<int:task_id>/ancestors", methods=["GET"])
 def get_ancestors(task_id):
-    if require_owned_task(task_id) is None:
+    if require_visible_task(task_id) is None:
         return {"error": "Task non trovato"}, 404
     return jsonify(get_ancestor_ids(task_id))
+
+
+# ---------------------------------------------------------------------------
+# Delega API — COMMITTENTE: chi delega; ESECUTORE: chi riceve. L'ownership passa
+# subito all'esecutore alla delega (non solo dopo l'accettazione): è quello che
+# rende gratuita tutta la visibilità dell'esecutore (il filtro owner_id esistente
+# gli dà già tutto), mentre il committente vede il solo nodo delegato in sola
+# lettura tramite committente_user_id, mai i suoi discendenti.
+# ---------------------------------------------------------------------------
+
+@app.route("/users", methods=["GET"])
+def get_users():
+    users = query_db(
+        "SELECT id, username FROM users WHERE id != ? ORDER BY username COLLATE NOCASE",
+        [current_user_id()],
+    )
+    return jsonify(users)
+
+
+@app.route("/tasks/<int:task_id>/delegate", methods=["POST"])
+def delegate_task(task_id):
+    task = require_owned_task(task_id)
+    if task is None:
+        return {"error": "Task non trovato"}, 404
+    if task["children_count"] > 0:
+        return {"error": "Solo una foglia può essere delegata"}, 409
+    if task["label"] != "APERTO":
+        return {"error": "Solo una foglia APERTA può essere delegata"}, 409
+    if task["deadline"] is None:
+        return {"error": "Serve una deadline già impostata per poter delegare"}, 409
+
+    data = request.get_json() or {}
+    executor_username = (data.get("executor_username") or "").strip() or None
+    external_name = data.get("external_name")
+    try:
+        external_name = validate_assegnato(external_name)
+    except ValueError as e:
+        return {"error": str(e)}, 400
+
+    if executor_username and external_name:
+        return {"error": "Compila solo uno dei due campi (Interna o Esterna)"}, 400
+
+    if executor_username:
+        executor = query_one("SELECT id FROM users WHERE username = ?", [executor_username])
+        if executor is None:
+            return {"error": "Utente non trovato"}, 404
+        if executor["id"] == current_user_id():
+            return {"error": "Non puoi delegare un task a te stesso"}, 400
+        statements = [
+            ("DELETE FROM task_dependencies WHERE task_id = ? OR depends_on_id = ?", (task_id, task_id)),
+            (
+                """
+                UPDATE tasks SET
+                    owner_id = ?, committente_user_id = ?, executor_user_id = ?,
+                    delegation_status = ?, delegation_notice = NULL, assegnato = NULL, focus = 0
+                WHERE id = ?
+                """,
+                (executor["id"], current_user_id(), executor["id"], DELEGATION_IN_ATTESA, task_id),
+            ),
+        ]
+        execute_transaction(statements)
+        return {"status": "ok"}
+
+    if external_name:
+        execute_db(
+            """
+            UPDATE tasks SET
+                assegnato = ?, committente_user_id = NULL, executor_user_id = NULL,
+                delegation_status = NULL, delegation_notice = NULL
+            WHERE id = ?
+            """,
+            (external_name, task_id),
+        )
+        return {"status": "ok"}
+
+    # nessuno dei due campi: revoca la delega esterna esistente. Una delega interna attiva
+    # non può essere disconnessa così — serve passare da Accetta/Rifiuta lato esecutore.
+    if task["executor_user_id"] is not None:
+        return {"error": "Usa Accetta/Rifiuta per una delega interna, non è revocabile direttamente"}, 409
+    execute_db(
+        "UPDATE tasks SET assegnato = NULL, committente_user_id = NULL, executor_user_id = NULL, "
+        "delegation_status = NULL, delegation_notice = NULL WHERE id = ?",
+        (task_id,),
+    )
+    return {"status": "ok"}
+
+
+@app.route("/tasks/<int:task_id>/accept-delegation", methods=["POST"])
+def accept_delegation(task_id):
+    task = get_task(task_id)
+    if task is None or task["executor_user_id"] != current_user_id() or task["delegation_status"] != DELEGATION_IN_ATTESA:
+        return {"error": "Task non trovato"}, 404
+    execute_db(
+        "UPDATE tasks SET delegation_status = ?, delegation_notice = ? WHERE id = ?",
+        (DELEGATION_ACCETTATA, DELEGATION_NOTICE_ACCETTATA, task_id),
+    )
+    return {"status": "ok"}
+
+
+@app.route("/tasks/<int:task_id>/decline-delegation", methods=["POST"])
+def decline_delegation(task_id):
+    task = get_task(task_id)
+    if task is None or task["executor_user_id"] != current_user_id() or task["delegation_status"] != DELEGATION_IN_ATTESA:
+        return {"error": "Task non trovato"}, 404
+    execute_db(
+        """
+        UPDATE tasks SET
+            owner_id = ?, committente_user_id = NULL, executor_user_id = NULL,
+            delegation_status = NULL, delegation_notice = NULL
+        WHERE id = ?
+        """,
+        (task["committente_user_id"], task_id),
+    )
+    return {"status": "ok"}
+
+
+@app.route("/tasks/<int:task_id>/ack-delegation-notice", methods=["POST"])
+def ack_delegation_notice(task_id):
+    task = require_visible_task(task_id)
+    if task is None or task["committente_user_id"] != current_user_id():
+        return {"error": "Task non trovato"}, 404
+    execute_db("UPDATE tasks SET delegation_notice = NULL WHERE id = ?", (task_id,))
+    return {"status": "ok"}
 
 
 # ---------------------------------------------------------------------------
@@ -993,7 +1167,7 @@ def get_ancestors(task_id):
 
 @app.route("/notes/<int:task_id>", methods=["GET"])
 def get_notes(task_id):
-    if require_owned_task(task_id) is None:
+    if require_visible_task(task_id) is None:
         return {"error": "Task non trovato"}, 404
     notes = query_db(
         """
@@ -1015,7 +1189,7 @@ def add_note(task_id):
     if not text or not text.strip():
         return {"error": "Nota vuota"}, 400
 
-    if require_owned_task(task_id) is None:
+    if require_visible_task(task_id) is None:
         return {"error": "Task non trovato"}, 404
 
     stamped_text = f"[{datetime.now().strftime('%d/%m/%Y %H:%M:%S')}] {text.strip()}"
@@ -1043,7 +1217,7 @@ def update_note(note_id):
     if text is None or not text.strip():
         return {"error": "Nota vuota"}, 400
 
-    if get_owned_note(note_id) is None:
+    if get_visible_note(note_id) is None:
         return {"error": "Nota non trovata"}, 404
 
     execute_db(
@@ -1055,21 +1229,26 @@ def update_note(note_id):
 
 @app.route("/tasks/<int:task_id>/notes-subtree", methods=["GET"])
 def get_notes_subtree(task_id):
-    if require_owned_task(task_id) is None:
+    if require_visible_task(task_id) is None:
         return {"error": "Task non trovato"}, 404
     rows = query_db(
         """
-        WITH RECURSIVE subtree(id) AS (
-            SELECT id FROM tasks WHERE id = ?
+        WITH RECURSIVE subtree(id, owner_id) AS (
+            SELECT id, owner_id FROM tasks WHERE id = ?
             UNION ALL
-            SELECT t.id FROM tasks t JOIN subtree s ON t.parent_id = s.id
+            SELECT t.id, t.owner_id FROM tasks t
+            JOIN subtree s ON t.parent_id = s.id
+            -- si ferma ai confini di ownership: un nodo delegato può avere discendenti
+            -- di un altro owner (creati dall'esecutore), mai visibili a chi ha chiesto
+            -- il sottoalbero se non è lui stesso quell'owner
+            WHERE s.owner_id = ?
         )
         SELECT n.id, n.task_id, n.note_date, n.text, n.updated_at
         FROM notes n
         JOIN subtree s ON n.task_id = s.id
         ORDER BY n.note_date
         """,
-        [task_id],
+        [task_id, current_user_id()],
     )
     return jsonify(rows)
 

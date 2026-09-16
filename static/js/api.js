@@ -125,3 +125,23 @@ export function logout() {
 export function fetchMe() {
   return fetch("/me").then(handle);
 }
+
+export function fetchUsers() {
+  return fetch("/users").then(handle);
+}
+
+export function delegateTask(id, payload) {
+  return postJson(`/tasks/${id}/delegate`, "POST", payload);
+}
+
+export function acceptDelegation(id) {
+  return postJson(`/tasks/${id}/accept-delegation`, "POST", {});
+}
+
+export function declineDelegation(id) {
+  return postJson(`/tasks/${id}/decline-delegation`, "POST", {});
+}
+
+export function ackDelegationNotice(id) {
+  return postJson(`/tasks/${id}/ack-delegation-notice`, "POST", {});
+}

@@ -1145,6 +1145,69 @@ td.leaf-title-cell:hover {
   text-align: center;
 }
 
+/* il <fieldset> che avvolge i campi editabili del modale: nessuno stile proprio, serve
+   solo per poter disabilitare in blocco tutti i controlli quando il committente apre in
+   sola lettura un nodo delegato che non gli appartiene */
+#node-fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+#node-fieldset:disabled {
+  opacity: 0.7;
+}
+
+.assegnazione-title {
+  display: block;
+  font-size: 13px;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+#field-assegnazione-interna-controls {
+  margin-bottom: 8px;
+}
+
+#delega-btn,
+#accept-delegation-btn,
+#decline-delegation-btn {
+  padding: 6px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #f5f5f5;
+  font: inherit;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+#field-assegnazione-executor-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.delegation-badge {
+  cursor: default;
+}
+
+/* colore temporaneo sul titolo del task delegato: si spegne quando il committente apre la
+   configurazione (vedi ackDelegationNotice in modal.js), non al salvataggio */
+.delegation-notice-posticipata {
+  color: #7b1fa2;
+  font-weight: bold;
+}
+
+.delegation-notice-anticipata {
+  color: #2e7d32;
+  font-weight: bold;
+}
+
+.delegation-notice-accettata {
+  color: #1565c0;
+  font-weight: bold;
+}
+
 /* righe di campi affiancati: ogni campo resta largo quanto il suo contenuto, non si
    allunga per riempire lo spazio residuo della riga */
 .field-row {

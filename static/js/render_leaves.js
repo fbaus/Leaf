@@ -15,6 +15,7 @@ import {
   makeBadge,
   childrenIndex,
   openLeafDescendants,
+  delegationCellText,
 } from "./utils.js";
 import { setFocus } from "./api.js";
 import { openEditModal } from "./modal.js";
@@ -77,7 +78,9 @@ function renderTable(mainPanel, tasksById) {
   let leaves = state.tasks.filter(isLeaf);
   leaves = leaves.filter((n) => matchesStatusGroup(n, state.leafFilters.statusGroup));
   leaves = leaves.filter((n) => isRootIncluded(rootIdOf(n, tasksById)));
-  leaves = sortRows(leaves, tasksById, state.leafFilters.sortBy, state.leafFilters.dateSecondarySort);
+  leaves = sortRows(
+    leaves, tasksById, state.leafFilters.sortBy, state.leafFilters.dateSecondarySort, state.currentUser?.id
+  );
 
   const childrenByParent = childrenIndex(state.tasks);
 
@@ -105,12 +108,14 @@ function renderTable(mainPanel, tasksById) {
 
   const tbody = document.createElement("tbody");
   leaves.forEach((node) => {
+    const isOwner = node.owner_id === state.currentUser?.id;
     const tr = document.createElement("tr");
     tr.dataset.taskId = node.id;
     tr.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      showContextMenu(e.clientX, e.clientY, [
-        {
+      const items = [];
+      if (isOwner) {
+        items.push({
           label: node.focus ? "Disattiva focus" : "Attiva focus",
           onClick: async () => {
             try {
@@ -120,12 +125,13 @@ function renderTable(mainPanel, tasksById) {
               alert(err.message);
             }
           },
-        },
-        {
-          label: "Configurazione",
-          onClick: () => openEditModal(node),
-        },
-      ]);
+        });
+      }
+      items.push({
+        label: "Configurazione",
+        onClick: () => openEditModal(node),
+      });
+      showContextMenu(e.clientX, e.clientY, items);
     });
 
     const tdParent = document.createElement("td");
@@ -145,6 +151,11 @@ function renderTable(mainPanel, tasksById) {
 
     const titleText = document.createElement("span");
     titleText.className = "leaf-title-text";
+    // stesso principio della vista Albero: il colore è un avviso per il committente, non per
+    // l'esecutore che ha appena causato il cambiamento
+    if (node.delegation_notice && node.committente_user_id === state.currentUser?.id) {
+      titleText.classList.add(`delegation-notice-${node.delegation_notice}`);
+    }
     titleText.textContent = node.title;
     titleText.title = "Vai nell'albero";
     titleText.onclick = () => jumpToTree(node.id);
@@ -154,6 +165,14 @@ function renderTable(mainPanel, tasksById) {
     if (node.expired) titleRow.appendChild(makeBadge("⏰", "Deadline superata"));
     else if (node.deadline_approaching) {
       titleRow.appendChild(makeBadge("⚠️", "Deadline entro 7 giorni", "#f9a825", "deadline-warning-badge"));
+    }
+
+    if (node.executor_user_id != null) {
+      const stato = node.delegation_status === "accettata" ? "accettata" : "in attesa";
+      const tooltip = isOwner
+        ? `Delegato da: ${node.committente_username} (${stato})`
+        : `Delegato a: ${node.executor_username} (${stato})`;
+      titleRow.appendChild(makeBadge("🤝", tooltip, null, "delegation-badge"));
     }
 
     // due tag distinti, uno per tipo di dipendenza, entrambi accanto al titolo: quello
@@ -221,7 +240,7 @@ function renderTable(mainPanel, tasksById) {
     tr.appendChild(tdStatus);
 
     const tdAssegnato = document.createElement("td");
-    tdAssegnato.textContent = node.assegnato || "—";
+    tdAssegnato.textContent = delegationCellText(node, state.currentUser?.id) || "—";
     tr.appendChild(tdAssegnato);
 
     const tdDesc = document.createElement("td");

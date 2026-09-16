@@ -120,6 +120,18 @@ export function rootProjectCode(node, tasksById) {
   return root ? root.project_code || null : null;
 }
 
+// testo per la colonna "Assegnato" (vista Foglie/Albero) che copre sia la delega esterna
+// (testo libero, invariata) sia quella interna (che non valorizza mai `assegnato`, quindi
+// deve essere derivato da committente/esecutore in base al punto di vista di chi guarda)
+export function delegationCellText(node, currentUserId) {
+  if (node.assegnato) return node.assegnato;
+  if (node.executor_user_id == null) return null;
+  const stato = node.delegation_status === "accettata" ? "accettata" : "in attesa";
+  if (node.executor_user_id === currentUserId) return `Da: ${node.committente_username} (${stato})`;
+  if (node.committente_user_id === currentUserId) return `A: ${node.executor_username} (${stato})`;
+  return null;
+}
+
 export function matchesSearch(node, text) {
   if (!text) return true;
   const needle = text.toLowerCase();
@@ -146,7 +158,7 @@ function assegnatoSortKey(value) {
   return value || "￿";
 }
 
-function compareBy(criterion, a, b, tasksById) {
+function compareBy(criterion, a, b, tasksById, currentUserId) {
   if (criterion === "padre") {
     return rootTitle(a, tasksById).localeCompare(rootTitle(b, tasksById));
   }
@@ -162,7 +174,9 @@ function compareBy(criterion, a, b, tasksById) {
     return sa - sb;
   }
   if (criterion === "assegnato") {
-    return assegnatoSortKey(a.assegnato).localeCompare(assegnatoSortKey(b.assegnato));
+    const ka = assegnatoSortKey(delegationCellText(a, currentUserId) || a.assegnato);
+    const kb = assegnatoSortKey(delegationCellText(b, currentUserId) || b.assegnato);
+    return ka.localeCompare(kb);
   }
   return 0;
 }
@@ -170,14 +184,14 @@ function compareBy(criterion, a, b, tasksById) {
 // `secondaryDateField` ("execution_date" | "deadline" | null): sorting secondario scelto a
 // mano dall'utente (bottoni EX/DL nella vista calendario di FOGLIE), applicato a tutti gli
 // status subito dopo il criterio primario, prima degli altri tie-break di default
-export function sortRows(list, tasksById, primary = "padre", secondaryDateField = null) {
+export function sortRows(list, tasksById, primary = "padre", secondaryDateField = null, currentUserId = null) {
   let sequence = [primary, ...ALL_SORT_CRITERIA.filter((c) => c !== primary)];
   if (secondaryDateField && secondaryDateField !== primary) {
     sequence = [primary, secondaryDateField, ...sequence.slice(1).filter((c) => c !== secondaryDateField)];
   }
   return [...list].sort((a, b) => {
     for (const criterion of sequence) {
-      const cmp = compareBy(criterion, a, b, tasksById);
+      const cmp = compareBy(criterion, a, b, tasksById, currentUserId);
       if (cmp !== 0) return cmp;
     }
     return 0;

@@ -126,28 +126,33 @@ async function confirmDeletion(node) {
   return showConfirmDialog(`Confermi in modo definitivo l'eliminazione di ${name}?`);
 }
 
-function nodeContextMenuItems(node, hasChildren) {
+// un nodo visibile solo come committente (non owner) di una foglia delegata è di fatto in
+// sola lettura: solo Note (per negoziare) e Configurazione (in sola lettura) restano
+// disponibili — le altre azioni fallirebbero comunque lato server (route owner-only)
+function nodeContextMenuItems(node, hasChildren, isOwner) {
   const items = [];
 
-  items.push({
-    label: node.focus ? "Disattiva focus" : "Attiva focus",
-    disabled: !isLeaf(node),
-    onClick: async () => {
-      try {
-        await setFocus(node.id, !node.focus);
-        await reload();
-      } catch (err) {
-        alert(err.message);
-      }
-    },
-  });
+  if (isOwner) {
+    items.push({
+      label: node.focus ? "Disattiva focus" : "Attiva focus",
+      disabled: !isLeaf(node),
+      onClick: async () => {
+        try {
+          await setFocus(node.id, !node.focus);
+          await reload();
+        } catch (err) {
+          alert(err.message);
+        }
+      },
+    });
 
-  const canAddChild = hasChildren || node.label !== "CHIUSO";
-  items.push({
-    label: "Aggiungi foglia",
-    disabled: !canAddChild,
-    onClick: () => openCreateModal(node.id),
-  });
+    const canAddChild = hasChildren || node.label !== "CHIUSO";
+    items.push({
+      label: "Aggiungi foglia",
+      disabled: !canAddChild,
+      onClick: () => openCreateModal(node.id),
+    });
+  }
 
   items.push({
     label: "Note",
@@ -158,35 +163,40 @@ function nodeContextMenuItems(node, hasChildren) {
     },
   });
 
-  items.push({
-    label: "Vista Gantt",
-    disabled: !hasChildren,
-    onClick: () => openGanttView(node),
-  });
+  if (isOwner) {
+    items.push({
+      label: "Vista Gantt",
+      disabled: !hasChildren,
+      onClick: () => openGanttView(node),
+    });
+  }
 
   items.push({
     label: "Configurazione",
     onClick: () => openEditModal(node),
   });
 
-  items.push({
-    label: "Elimina",
-    onClick: async () => {
-      const ok = await confirmDeletion(node);
-      if (!ok) return;
-      try {
-        await deleteTask(node.id);
-        await reload();
-      } catch (err) {
-        alert(err.message);
-      }
-    },
-  });
+  if (isOwner) {
+    items.push({
+      label: "Elimina",
+      onClick: async () => {
+        const ok = await confirmDeletion(node);
+        if (!ok) return;
+        try {
+          await deleteTask(node.id);
+          await reload();
+        } catch (err) {
+          alert(err.message);
+        }
+      },
+    });
+  }
 
   return items;
 }
 
 function renderNode(node, searchText) {
+  const isOwner = node.owner_id === state.currentUser?.id;
   const li = document.createElement("li");
   li.dataset.nodeId = node.id;
 
@@ -197,7 +207,9 @@ function renderNode(node, searchText) {
   if (node.expired) row.classList.add("row-expired");
   else if (node.escalation) row.classList.add("row-escalation");
   if (state.highlightedDepsIds.has(node.id)) row.classList.add("row-dep-highlight");
-  attachDragHandlers(row, node);
+  // un nodo visibile solo come committente non è draggabile: spostarlo fallirebbe
+  // comunque lato server (owner-only) e trascinarlo confonderebbe soltanto
+  if (isOwner) attachDragHandlers(row, node);
 
   const hasChildren = node.children.length > 0;
   let childrenUl = null;
@@ -232,6 +244,11 @@ function renderNode(node, searchText) {
 
   const title = document.createElement("span");
   title.className = "node-title";
+  // il colore temporaneo è un avviso per il COMMITTENTE (è lui che deve accorgersi del
+  // cambiamento fatto dall'esecutore): l'esecutore stesso, che l'ha appena causato, non lo vede
+  if (node.delegation_notice && node.committente_user_id === state.currentUser?.id) {
+    title.classList.add(`delegation-notice-${node.delegation_notice}`);
+  }
   title.title = "Clic sinistro: leggi le note. Clic destro: azioni sul nodo.";
   if (state.selectedNoteNodeId === node.id) title.classList.add("selected-node");
   title.textContent = node.title;
@@ -247,9 +264,17 @@ function renderNode(node, searchText) {
   // solo la presenza, in profondità, di una foglia scaduta senza dover espandere il ramo
   else if (node.expired_descendant) row.appendChild(makeBadge("⏰", "Contiene una sotto-attività con deadline superata"));
 
+  if (node.executor_user_id != null) {
+    const stato = node.delegation_status === "accettata" ? "accettata" : "in attesa";
+    const tooltip = isOwner
+      ? `Delegato da: ${node.committente_username} (${stato})`
+      : `Delegato a: ${node.executor_username} (${stato})`;
+    row.appendChild(makeBadge("🤝", tooltip, null, "delegation-badge"));
+  }
+
   row.addEventListener("contextmenu", (e) => {
     e.preventDefault();
-    showContextMenu(e.clientX, e.clientY, nodeContextMenuItems(node, hasChildren));
+    showContextMenu(e.clientX, e.clientY, nodeContextMenuItems(node, hasChildren, isOwner));
   });
 
   li.appendChild(row);

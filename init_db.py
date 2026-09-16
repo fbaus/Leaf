@@ -38,7 +38,19 @@ CREATE TABLE tasks (
   -- solo un nodo radice (parent_id NULL) può avere un codice progetto: i discendenti lo
   -- ereditano per calcolo (risalendo la radice), mai copiato/memorizzato su di loro
   project_code    TEXT CHECK (project_code IS NULL OR (parent_id IS NULL AND project_code GLOB '[0-9][0-9][0-9]-20[0-9][0-9]')),
-  created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  -- delega interna fra utenti registrati: committente/esecutore valorizzati solo sul nodo
+  -- effettivamente delegato, mai ereditati dai discendenti (a differenza di project_code)
+  committente_user_id INTEGER REFERENCES users(id),
+  executor_user_id    INTEGER REFERENCES users(id),
+  delegation_status TEXT CHECK (delegation_status IS NULL OR delegation_status IN ('in_attesa','accettata')),
+  delegation_notice TEXT CHECK (delegation_notice IS NULL OR delegation_notice IN ('posticipata','anticipata','accettata')),
+  created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  -- colonne, non CHECK, devono precedere questi vincoli a livello di tabella (grammatica SQLite)
+  CHECK (
+    (committente_user_id IS NULL AND executor_user_id IS NULL AND delegation_status IS NULL)
+    OR (committente_user_id IS NOT NULL AND executor_user_id IS NOT NULL AND delegation_status IS NOT NULL)
+  ),
+  CHECK (delegation_notice IS NULL OR committente_user_id IS NOT NULL)
 );
 
 CREATE INDEX idx_tasks_parent_id ON tasks(parent_id);
@@ -49,6 +61,8 @@ CREATE UNIQUE INDEX idx_tasks_focus_unique ON tasks(owner_id) WHERE focus = 1;
 -- codice progetto unico in tutta l'app (fra tutti gli utenti, non solo per owner): è
 -- proprio la segnalazione della collisione fra utenti diversi il punto della funzionalità
 CREATE UNIQUE INDEX idx_tasks_project_code ON tasks(project_code) WHERE project_code IS NOT NULL;
+CREATE INDEX idx_tasks_committente_user_id ON tasks(committente_user_id) WHERE committente_user_id IS NOT NULL;
+CREATE INDEX idx_tasks_executor_user_id ON tasks(executor_user_id) WHERE executor_user_id IS NOT NULL;
 
 CREATE TABLE task_dependencies (
   task_id       INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
