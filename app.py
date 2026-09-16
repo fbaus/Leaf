@@ -300,12 +300,18 @@ def resolve_dependency_status(dep_id, tasks_by_id, children_by_parent, cache):
 
 def compute_estimated_days_rollup(node_id, tasks_by_id, children_by_parent, cache):
     """Tempo stimato 'effettivo' di un nodo: per una foglia è il suo valore proprio, ma solo
-    se è attiva (label APERTO — una foglia CHIUSA non contribuisce mai a un rollup, anche se
-    il suo valore resta salvato e visibile su se stessa); per un ramo è la somma ricorsiva del
-    tempo stimato di tutte le foglie discendenti attive (mai memorizzata su un ramo, sempre
-    ricalcolata). Nessuna dipendenza dalle deleghe qui: quel filtro ("non delegate") arriva
-    con la Fase 4. None se non c'è alcun contributo (nessuna foglia attiva con una stima),
-    cosa diversa da 0 — permette al frontend di mostrare "—" invece di "0"."""
+    se è attiva (label APERTO — una foglia CHIUSA è esclusa dal calcolo di qualsiasi
+    antenato, anche se il suo valore resta salvato e visibile su se stessa); per un ramo è
+    la somma ricorsiva del tempo stimato dei figli attivi (foglie APERTE o altri rami — un
+    ramo non ha mai una label propria, quindi conta sempre come "attivo" ai fini di questo
+    calcolo). Nessuna dipendenza dalle deleghe qui: quel filtro ("non delegate") arriva con
+    la Fase 4.
+
+    Se anche un solo figlio attivo (foglia aperta o ramo) non ha un valore determinato —
+    foglia senza stima, o ramo il cui calcolo è a sua volta indeterminato — l'intero nodo
+    risulta indeterminato: niente somma parziale che ignora i "buchi", l'intera stima sale
+    come "---" fino a dove serve. Stesso esito (None, mostrato "—" dal frontend) se non
+    c'è proprio nessun figlio attivo da sommare."""
     if node_id in cache:
         return cache[node_id]
     task = tasks_by_id[node_id]
@@ -313,14 +319,23 @@ def compute_estimated_days_rollup(node_id, tasks_by_id, children_by_parent, cach
         result = task["estimated_days"] if task["label"] == "APERTO" else None
         cache[node_id] = result
         return result
-    total = 0.0
-    any_value = False
-    for child in children_by_parent.get(node_id, []):
-        child_value = compute_estimated_days_rollup(child["id"], tasks_by_id, children_by_parent, cache)
-        if child_value is not None:
+
+    active_children = [
+        c for c in children_by_parent.get(node_id, [])
+        if not (c["children_count"] == 0 and c["label"] != "APERTO")
+    ]
+    if not active_children:
+        result = None
+    else:
+        total = 0.0
+        for child in active_children:
+            child_value = compute_estimated_days_rollup(child["id"], tasks_by_id, children_by_parent, cache)
+            if child_value is None:
+                result = None
+                break
             total += child_value
-            any_value = True
-    result = round(total, 1) if any_value else None
+        else:
+            result = round(total, 1)
     cache[node_id] = result
     return result
 
