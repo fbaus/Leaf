@@ -81,6 +81,11 @@ def current_user_id():
     return session["user_id"]
 
 
+def current_username():
+    row = query_one("SELECT username FROM users WHERE id = ?", [current_user_id()])
+    return row["username"] if row else "?"
+
+
 def require_owned_task(task_id):
     """Come get_task, ma torna None sia se il task non esiste sia se esiste ma è di
     un altro utente — le due situazioni devono produrre la stessa risposta (404) per
@@ -1369,7 +1374,9 @@ def add_note(task_id):
     if require_visible_task(task_id) is None:
         return {"error": "Task non trovato"}, 404
 
-    stamped_text = f"[{datetime.now().strftime('%d/%m/%Y %H:%M:%S')}] {text.strip()}"
+    # il nome utente accanto alla data serve a distinguere chi ha scritto cosa quando più
+    # persone (committente/esecutore di un task delegato) leggono e scrivono le stesse note
+    stamped_text = f"[{datetime.now().strftime('%d/%m/%Y %H:%M:%S')} {current_username()}] {text.strip()}"
 
     execute_db(
         """
