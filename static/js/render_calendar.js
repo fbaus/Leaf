@@ -27,7 +27,8 @@ const SUPER_HEADER_HEIGHT = 20; // fascia settimane/mesi/anni (o giorni, in Pian
 // con il corpo alternativo della vista "Pianificazione" (vedi render_planning.js)
 // ---------------------------------------------------------------------------
 
-function renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, granularity, theadHeight) {
+function renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, granularity, theadHeight, opts = {}) {
+  const { afterCommit } = opts;
   const buckets = buildBuckets(leaves, granularity);
   const totalWidth = buckets.reduce((sum, b) => sum + b.width, 0);
   const todayIndex = buckets.findIndex((b) => b.isToday);
@@ -170,9 +171,9 @@ function renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, su
 
       if (isOwner) {
         centerHandle.title = "Trascina per spostare l'intera barra";
-        attachBarHandleDrag(leftHandle, "left", node, buckets, totalWidth, inner, bar);
-        attachBarHandleDrag(rightHandle, "right", node, buckets, totalWidth, inner, bar);
-        attachBarMoveDrag(centerHandle, node, buckets, totalWidth, inner, bar);
+        attachBarHandleDrag(leftHandle, "left", node, buckets, totalWidth, inner, bar, { afterCommit });
+        attachBarHandleDrag(rightHandle, "right", node, buckets, totalWidth, inner, bar, { afterCommit });
+        attachBarMoveDrag(centerHandle, node, buckets, totalWidth, inner, bar, { afterCommit });
       } else {
         attachLockedBarNotice(leftHandle);
         attachLockedBarNotice(rightHandle);
@@ -191,10 +192,20 @@ function renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, su
 // Rendering
 // ---------------------------------------------------------------------------
 
-export function renderCalendarOverlay(mainPanel, leaves) {
+export function renderCalendarOverlay(mainPanel, leaves, opts = {}) {
+  const {
+    minCol = 1, defaultCol = 2, maxCol = 4,
+    afterCommit, hidePianificazione = false, hideDateSort = false,
+  } = opts;
   const table = mainPanel.querySelector("table.leaves-table");
   if (!table || !table.tHead) return;
 
+  // la vista Carico di lavoro non offre "Pianificazione" (lavagna oraria personale, non
+  // ha senso su task di più utenti): se lo stato globale del calendario era rimasto su
+  // "planning" da un uso precedente in Foglie, si forza a "timeline" qui
+  if (hidePianificazione && state.calendarMode === "planning") {
+    state.calendarMode = "timeline";
+  }
   const mode = state.calendarMode;
   const granularity = state.calendarGranularity;
   const superHeaderHeight = SUPER_HEADER_HEIGHT;
@@ -203,12 +214,12 @@ export function renderCalendarOverlay(mainPanel, leaves) {
   const theadHeight = table.tHead.getBoundingClientRect().height;
   const mainPanelRect = mainPanel.getBoundingClientRect();
   const mainPanelLeft = mainPanelRect.left;
-  // il bordo sinistro del calendario è trascinabile fra la fine della colonna Titolo e la
-  // fine della colonna Descrizione: Data di esecuzione e Deadline restano sempre coperte
-  // dal calendario, mai scopribili trascinando verso destra
-  const minLeft = table.tHead.rows[0].children[1].getBoundingClientRect().right - mainPanelLeft;
-  const maxLeft = table.tHead.rows[0].children[4].getBoundingClientRect().right - mainPanelLeft;
-  const defaultLeft = table.tHead.rows[0].children[2].getBoundingClientRect().right - mainPanelLeft;
+  // il bordo sinistro del calendario è trascinabile fra le colonne minCol e maxCol (di
+  // default, fra Titolo e Descrizione in Foglie): Data di esecuzione e Deadline restano
+  // sempre coperte dal calendario, mai scopribili trascinando verso destra
+  const minLeft = table.tHead.rows[0].children[minCol].getBoundingClientRect().right - mainPanelLeft;
+  const maxLeft = table.tHead.rows[0].children[maxCol].getBoundingClientRect().right - mainPanelLeft;
+  const defaultLeft = table.tHead.rows[0].children[defaultCol].getBoundingClientRect().right - mainPanelLeft;
   const colOffset =
     state.calendarLeftOffset === null
       ? defaultLeft
@@ -252,17 +263,20 @@ export function renderCalendarOverlay(mainPanel, leaves) {
 
   // "Pianificazione" è un quinto bottone-vista pari agli altri, sempre a sinistra di
   // "Settimana": passa alla lavagna oraria usa-e-getta (render_planning.js), scorrelata
-  // da EX/DL. Cliccare una qualunque granularità torna alla vista timeline a bucket
-  const planningBtn = document.createElement("button");
-  planningBtn.className = "filter-group-btn";
-  planningBtn.classList.toggle("active", mode === "planning");
-  planningBtn.textContent = "Pianificazione";
-  planningBtn.onclick = () => {
-    state.calendarMode = "planning";
-    rerender();
-    refreshPlanningBlocks();
-  };
-  toolbar.appendChild(planningBtn);
+  // da EX/DL. Cliccare una qualunque granularità torna alla vista timeline a bucket.
+  // Non ha senso in Carico di lavoro (è personale, non su task di più utenti).
+  if (!hidePianificazione) {
+    const planningBtn = document.createElement("button");
+    planningBtn.className = "filter-group-btn";
+    planningBtn.classList.toggle("active", mode === "planning");
+    planningBtn.textContent = "Pianificazione";
+    planningBtn.onclick = () => {
+      state.calendarMode = "planning";
+      rerender();
+      refreshPlanningBlocks();
+    };
+    toolbar.appendChild(planningBtn);
+  }
 
   GRANULARITIES.forEach(({ key, label }) => {
     const btn = document.createElement("button");
@@ -279,25 +293,28 @@ export function renderCalendarOverlay(mainPanel, leaves) {
 
   // sorting secondario a scelta manuale (in aggiunta al criterio di ordinamento primario
   // della tabella FOGLIE), per data di esecuzione o per deadline, su tutti gli status —
-  // resta valido anche in Pianificazione: determina comunque l'ordine delle righe
-  const dateSortGroup = document.createElement("div");
-  dateSortGroup.className = "calendar-date-sort-group";
-  [
-    { key: "execution_date", label: "EX" },
-    { key: "deadline", label: "DL" },
-  ].forEach(({ key, label }) => {
-    const btn = document.createElement("button");
-    btn.className = "filter-group-btn";
-    btn.classList.toggle("active", state.leafFilters.dateSecondarySort === key);
-    btn.textContent = label;
-    btn.title = `Ordina in aggiunta per ${label === "EX" ? "data di esecuzione" : "deadline"}`;
-    btn.onclick = () => {
-      state.leafFilters.dateSecondarySort = state.leafFilters.dateSecondarySort === key ? null : key;
-      rerender();
-    };
-    dateSortGroup.appendChild(btn);
-  });
-  toolbar.appendChild(dateSortGroup);
+  // resta valido anche in Pianificazione: determina comunque l'ordine delle righe.
+  // Non applicabile in Carico di lavoro, che non usa state.leafFilters per l'ordinamento.
+  if (!hideDateSort) {
+    const dateSortGroup = document.createElement("div");
+    dateSortGroup.className = "calendar-date-sort-group";
+    [
+      { key: "execution_date", label: "EX" },
+      { key: "deadline", label: "DL" },
+    ].forEach(({ key, label }) => {
+      const btn = document.createElement("button");
+      btn.className = "filter-group-btn";
+      btn.classList.toggle("active", state.leafFilters.dateSecondarySort === key);
+      btn.textContent = label;
+      btn.title = `Ordina in aggiunta per ${label === "EX" ? "data di esecuzione" : "deadline"}`;
+      btn.onclick = () => {
+        state.leafFilters.dateSecondarySort = state.leafFilters.dateSecondarySort === key ? null : key;
+        rerender();
+      };
+      dateSortGroup.appendChild(btn);
+    });
+    toolbar.appendChild(dateSortGroup);
+  }
 
   overlay.appendChild(toolbar);
 
@@ -310,7 +327,7 @@ export function renderCalendarOverlay(mainPanel, leaves) {
   const { totalWidth, initialScrollLeft } =
     mode === "planning"
       ? renderPlanningInner(inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, theadHeight)
-      : renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, granularity, theadHeight);
+      : renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, granularity, theadHeight, { afterCommit });
   inner.style.width = `${totalWidth}px`;
   // .calendar-inner non ha altezza CSS propria: in flusso normale la sua altezza "auto" è
   // solo quella delle due righe di intestazione appena aggiunte (super-header + header),

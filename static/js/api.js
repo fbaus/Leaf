@@ -130,6 +130,10 @@ export function fetchUsers() {
   return fetch("/users").then(handle);
 }
 
+export function fetchWorkload() {
+  return fetch("/workload").then(handle);
+}
+
 export function delegateTask(id, payload) {
   return postJson(`/tasks/${id}/delegate`, "POST", payload);
 }

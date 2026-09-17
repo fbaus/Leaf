@@ -1,7 +1,10 @@
-import { fetchTasks } from "./api.js";
+import { fetchTasks, fetchWorkload } from "./api.js";
 
 export const state = {
   tasks: [],
+  workloadUsers: [], // dati della vista "Carico di lavoro" (GET /workload), caricati on-demand
+  expandedWorkloadUserIds: new Set(),
+  workloadCalendarOpen: false,
   currentUser: null, // { id, username, is_superuser } dopo login/fetchMe riusciti, altrimenti null
   currentView: "albero",
   expandedIds: new Set(),
@@ -40,5 +43,10 @@ export function rerender() {
 
 export async function reload() {
   state.tasks = await fetchTasks();
+  rerender();
+}
+
+export async function reloadWorkload() {
+  state.workloadUsers = await fetchWorkload();
   rerender();
 }

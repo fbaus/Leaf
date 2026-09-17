@@ -426,6 +426,46 @@ td.leaf-title-cell:hover {
   border-color: #1565c0;
 }
 
+/* ---------- Carico di lavoro ---------- */
+
+.workload-user {
+  border-bottom: 1px solid #eee;
+}
+
+.workload-user-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 4px;
+}
+
+.workload-user-name {
+  font-weight: bold;
+  min-width: 10em;
+}
+
+.workload-user-count {
+  color: #555;
+  font-size: 13px;
+}
+
+.workload-user-load {
+  color: #555;
+  font-size: 13px;
+  margin-left: auto;
+}
+
+.workload-empty {
+  padding: 6px 4px 14px 26px;
+  color: #999;
+  font-size: 13px;
+}
+
+.workload-detail-table {
+  margin: 0 0 14px 26px;
+  width: calc(100% - 26px);
+}
+
 .root-checklist {
   border: 1px solid #eee;
   border-radius: 6px;

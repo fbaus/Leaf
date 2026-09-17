@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from flask import Flask, jsonify, request, render_template, send_file, session
 from werkzeug.security import check_password_hash
@@ -32,6 +32,16 @@ DELEGATION_ACCETTATA = "accettata"
 DELEGATION_NOTICE_POSTICIPATA = "posticipata"
 DELEGATION_NOTICE_ANTICIPATA = "anticipata"
 DELEGATION_NOTICE_ACCETTATA = "accettata"
+
+# Vista "Carico di lavoro" (Fase 5): parametro medio unico per tutti gli utenti — non ancora
+# personalizzabile per esecutore, vedi CLAUDE.md/discussione di progetto per i piani futuri.
+CAPACITA_PRODUTTIVA_MEDIA = 0.6
+FINE_GIORNATA_LAVORATIVA = time(17, 30)
+# pavimento minimo per il tempo disponibile (in giorni): senza di questo, chiedere il carico
+# di lavoro dopo le 17:30 di un task già in ritardo (Deadline = oggi) produrrebbe una
+# divisione per zero o per un numero negativo — 1 ora è un compromesso che tiene il numero
+# finito e comunque molto alto, senza dover gestire un caso speciale "non calcolabile"
+TEMPO_DISPONIBILE_MINIMO_GIORNI = 1 / 24
 
 # expired non può essere una colonna GENERATED in SQLite perché date('now')
 # e' considerata non-deterministica: va calcolata in ogni query.
@@ -499,6 +509,51 @@ def compute_estimated_days_rollup_unscoped(node_id):
             return None
         total += child_value
     return round(total, 1)
+
+
+def compute_avanzamento(execution_date, deadline):
+    """Percentuale di avanzamento *temporale* (non basato sul completamento delle foglie):
+    quanta parte della finestra EX→DL è già trascorsa oggi. Richiede EX definita, altrimenti
+    None (mostrato '—' dal frontend). Troncata a [0, 100]: un task non ancora iniziato o già
+    in ritardo non deve mostrare percentuali fuori scala. Vale sia per una foglia (le sue
+    date proprie) sia per un ramo/progetto (le sue date, già un rollup salvato dei figli —
+    stessa funzione, nessun caso speciale)."""
+    if not execution_date:
+        return None
+    today = date.today()
+    ex = date.fromisoformat(execution_date)
+    if not deadline or deadline == execution_date:
+        return 100.0 if today >= ex else 0.0
+    dl = date.fromisoformat(deadline)
+    frac = (today - ex).days / (dl - ex).days
+    return round(min(max(frac, 0.0), 1.0) * 100, 1)
+
+
+def compute_carico_lavoro(execution_date, estimated_days, deadline):
+    """Percentuale di carico di lavoro *odierno* di un task: quanto del tempo restante da
+    adesso alle 17:30 del giorno di deadline (corretto per la capacità produttiva media)
+    verrebbe assorbito dal tempo stimato residuo. None se manca il tempo stimato o la data
+    di esecuzione (mostrato '—' — disincentiva le stime mancanti). Se oggi è già oltre la
+    deadline, la deadline si considera "oggi alle 17:30" (il carico sale molto ma resta un
+    numero finito, grazie al pavimento TEMPO_DISPONIBILE_MINIMO_GIORNI)."""
+    if estimated_days is None or not execution_date or not deadline:
+        return None
+    now = datetime.now()
+    today = now.date()
+    ex = date.fromisoformat(execution_date)
+    if today < ex:
+        return 0.0
+    dl = date.fromisoformat(deadline)
+    if today > dl:
+        dl = today
+    fine_oggi = datetime.combine(today, FINE_GIORNATA_LAVORATIVA)
+    frazione_oggi = max((fine_oggi - now).total_seconds() / 86400, 0.0)
+    giorni_interi = (dl - today).days
+    tempo_disponibile = max(
+        (giorni_interi + frazione_oggi) * CAPACITA_PRODUTTIVA_MEDIA,
+        TEMPO_DISPONIBILE_MINIMO_GIORNI,
+    )
+    return round(estimated_days / tempo_disponibile * 100, 1)
 
 
 def has_cycle_from(start_id, graph):
@@ -1341,6 +1396,120 @@ def ack_escalation(task_id):
         return {"error": "Task non trovato"}, 404
     execute_db("UPDATE tasks SET escalation_seen = 1 WHERE id = ?", (task_id,))
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Vista "Carico di lavoro" (Fase 5) — unico endpoint che deliberatamente non è owner/
+# committente-scoped: chiunque loggato vede, di chiunque altro, titolo/date/status/stima
+# dei SOLI task con un codice progetto (aziendali), mai descrizione/note/dipendenze/
+# checklist. I task personali (senza codice) restano privati come ovunque nell'app, anche
+# per l'utente stesso — vedi discussione di progetto.
+# ---------------------------------------------------------------------------
+
+def resolve_root_project_code(task_id, tasks_by_id):
+    node = tasks_by_id.get(task_id)
+    while node is not None and node["parent_id"] is not None:
+        node = tasks_by_id.get(node["parent_id"])
+    return node["project_code"] if node else None
+
+
+@app.route("/workload", methods=["GET"])
+def get_workload():
+    tasks = query_db(
+        "SELECT t.*, (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = t.id) AS children_count FROM tasks t"
+    )
+    tasks_by_id = {t["id"]: t for t in tasks}
+    children_by_parent = {}
+    for t in tasks:
+        if t["parent_id"] is not None:
+            children_by_parent.setdefault(t["parent_id"], []).append(t)
+
+    deps_by_task = {}
+    for r in query_db("SELECT task_id, depends_on_id FROM task_dependencies"):
+        deps_by_task.setdefault(r["task_id"], []).append(r["depends_on_id"])
+
+    resolution_cache = {}
+    today = date.today().isoformat()
+    for t in tasks:
+        if t["label"] == "APERTO":
+            dep_statuses = [
+                resolve_dependency_status(d, tasks_by_id, children_by_parent, resolution_cache)
+                for d in deps_by_task.get(t["id"], []) if d in tasks_by_id
+            ]
+            t["status"], _ = compute_open_status(
+                t["execution_date"], t["deadline"], t["assegnato"], dep_statuses, today,
+                is_delegated_internally=t["executor_user_id"] is not None,
+            )
+        # CHIUSO: lo status resta quello reale già in colonna (SELECT t.* iniziale).
+        # Ramo (label NULL): la colonna è già NULL di suo, nessun tocco necessario.
+
+    estimated_cache = {}
+    for t in tasks:
+        if t["children_count"] > 0:
+            t["estimated_days"] = compute_estimated_days_rollup(t["id"], tasks_by_id, children_by_parent, estimated_cache)
+
+    users_by_id = {u["id"]: u["username"] for u in query_db("SELECT id, username FROM users")}
+
+    entries_by_executor = {}
+    own_projects_by_owner = {}
+    for t in tasks:
+        if t["executor_user_id"] is not None:
+            project_code = resolve_root_project_code(t["id"], tasks_by_id)
+            if project_code is None:
+                continue  # task delegato ma senza codice progetto: non è "aziendale", escluso
+            if t["status"] in CLOSED_STATUSES:
+                continue  # non piu' "carico di lavoro attuale"
+            entries_by_executor.setdefault(t["executor_user_id"], []).append({
+                "id": t["id"],
+                "owner_id": t["owner_id"],
+                "project_code": project_code,
+                "title": t["title"],
+                "avanzamento": compute_avanzamento(t["execution_date"], t["deadline"]),
+                "carico_lavoro": compute_carico_lavoro(t["execution_date"], t["estimated_days"], t["deadline"]),
+                "status": t["status"],
+                "committente_username": users_by_id.get(t["committente_user_id"]),
+                "executor_username": users_by_id.get(t["executor_user_id"]),
+                "execution_date": t["execution_date"],
+                "deadline": t["deadline"],
+            })
+        elif t["parent_id"] is None and t["project_code"] is not None and t["committente_user_id"] is None:
+            own_projects_by_owner.setdefault(t["owner_id"], []).append({
+                "id": t["id"],
+                "owner_id": t["owner_id"],
+                "project_code": t["project_code"],
+                "title": t["title"],
+                "avanzamento": compute_avanzamento(t["execution_date"], t["deadline"]),
+                "carico_lavoro": compute_carico_lavoro(t["execution_date"], t["estimated_days"], t["deadline"]),
+                "status": t["status"],
+                "committente_username": None,
+                "executor_username": users_by_id.get(t["owner_id"]),
+                "execution_date": t["execution_date"],
+                "deadline": t["deadline"],
+            })
+
+    def sort_key(entry):
+        return entry["deadline"] or "9999-99-99"
+
+    users = []
+    for u in query_db("SELECT id, username FROM users ORDER BY username COLLATE NOCASE"):
+        delegated = sorted(entries_by_executor.get(u["id"], []), key=sort_key)
+        own_projects = sorted(own_projects_by_owner.get(u["id"], []), key=sort_key)
+        # un progetto con codice che l'utente si è creato per sé conta comunque nel carico
+        # aggregato: avendo un codice è "approvato" dall'azienda, quindi è come se fosse
+        # delegato da una decisione strategica esterna al software, non un task personale
+        all_entries = delegated + own_projects
+        carichi = [e["carico_lavoro"] for e in all_entries]
+        workload_today = None if any(c is None for c in carichi) else round(sum(carichi), 1)
+        users.append({
+            "id": u["id"],
+            "username": u["username"],
+            "delegated_count": len(all_entries),
+            "workload_today": workload_today,
+            "delegated": delegated,
+            "own_projects": own_projects,
+        })
+
+    return jsonify(users)
 
 
 # ---------------------------------------------------------------------------

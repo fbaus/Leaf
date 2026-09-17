@@ -1,6 +1,7 @@
-import { state, onRender, reload } from "./state.js";
+import { state, onRender, reload, reloadWorkload } from "./state.js";
 import { renderTree } from "./render_tree.js";
 import { renderLeaves } from "./render_leaves.js";
+import { renderWorkload } from "./render_workload.js";
 import { renderNotesSidePanel } from "./render_notes.js";
 import { openCreateModal, initModal } from "./modal.js";
 import { captureFocus, restoreFocus } from "./focus.js";
@@ -39,6 +40,8 @@ function render() {
     renderNotesSidePanel(sidePanel, sideFocus);
   } else if (state.currentView === "foglie") {
     renderLeaves(mainPanel, sidePanel);
+  } else if (state.currentView === "carico") {
+    renderWorkload(mainPanel, sidePanel);
   }
 
   const customWidth = state.currentView === "albero" && state.sidePanelWidth !== null;
@@ -88,8 +91,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       // cambiare vista è il gesto di "navigazione" più naturale e frequente: senza un
       // refetch qui, un cambiamento fatto da un altro utente (es. l'esecutore di un task
       // delegato che sposta la deadline) resta invisibile finché non si ricarica l'intera
-      // pagina — reload() rifà anche il render, non serve chiamarlo a parte
-      reload();
+      // pagina — reload()/reloadWorkload() rifanno anche il render, non serve chiamarlo a parte
+      if (state.currentView === "carico") reloadWorkload();
+      else reload();
     });
   });
 
