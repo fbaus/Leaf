@@ -6,6 +6,9 @@ import {
   STATUS_META,
   makeBadge,
   escapeHtml,
+  byId,
+  rootProjectCode,
+  STATUS_IN_LISTA,
 } from "./utils.js";
 import { deleteTask, setFocus, moveTask } from "./api.js";
 import { openCreateModal, openEditModal } from "./modal.js";
@@ -202,7 +205,23 @@ function nodeContextMenuItems(node, hasChildren, isOwner) {
   return items;
 }
 
-function renderNode(node, searchText) {
+// pallino rosso permanente: foglia aperta, non delegata (né esterna né interna), di un
+// progetto con codice, priva di tempo stimato — lo stesso incentivo già dato dal rollup
+// "tutto o niente" (vedi compute_estimated_days_rollup), qui reso visibile subito sulla
+// foglia stessa invece che solo come "—" più in alto nell'albero
+function missingEstimateOnCodedProject(node, tasksById) {
+  return (
+    isLeaf(node)
+    && node.label === "APERTO"
+    && node.status !== STATUS_IN_LISTA
+    && !node.assegnato
+    && node.executor_user_id == null
+    && node.estimated_days == null
+    && rootProjectCode(node, tasksById) != null
+  );
+}
+
+function renderNode(node, searchText, tasksById) {
   const isOwner = node.owner_id === state.currentUser?.id;
   const li = document.createElement("li");
   li.dataset.nodeId = node.id;
@@ -273,6 +292,13 @@ function renderNode(node, searchText) {
   };
   row.appendChild(title);
 
+  if (missingEstimateOnCodedProject(node, tasksById)) {
+    const dot = document.createElement("span");
+    dot.className = "missing-estimate-dot";
+    dot.title = "Foglia aperta di un progetto con codice, senza tempo stimato";
+    row.appendChild(dot);
+  }
+
   if (node.expired) row.appendChild(makeBadge("⏰", "Deadline superata"));
   else if (node.escalation) row.appendChild(makeBadge("📅", "Data di esecuzione raggiunta: era delegato"));
   // un ramo non è mai "expired" di suo (vedi expired_descendant in app.py): il badge segnala
@@ -304,7 +330,7 @@ function renderNode(node, searchText) {
   if (childrenUl) {
     node.children
       .filter((c) => !searchText || subtreeMatches(c, searchText))
-      .forEach((c) => childrenUl.appendChild(renderNode(c, searchText)));
+      .forEach((c) => childrenUl.appendChild(renderNode(c, searchText, tasksById)));
     li.appendChild(childrenUl);
   }
 
@@ -355,6 +381,7 @@ export function renderTree(container) {
 
   const searchText = state.searchText.trim();
   const tree = buildTree(state.tasks);
+  const tasksById = byId(state.tasks);
 
   if (searchText) {
     const expandForSearch = (nodes) => {
@@ -372,7 +399,7 @@ export function renderTree(container) {
   ul.className = "tree-root";
   tree
     .filter((n) => !searchText || subtreeMatches(n, searchText))
-    .forEach((n) => ul.appendChild(renderNode(n, searchText)));
+    .forEach((n) => ul.appendChild(renderNode(n, searchText, tasksById)));
 
   container.appendChild(ul);
 

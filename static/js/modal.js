@@ -497,7 +497,15 @@ function parseProjectCode(code) {
 // date/tempo stimato di un ramo
 function updateProjectCodeVisibility(node, isRoot) {
   fieldProjectCodeRow.style.display = isRoot ? "flex" : "none";
-  if (!isRoot) return;
+  if (!isRoot) {
+    // senza questo, il display "block" lasciato da un nodo radice aperto in precedenza
+    // resta scritto sull'elemento (solo il contenitore .field-row viene nascosto): submitForm
+    // controlla proprio questo stile per decidere se includere project_code nel payload, e
+    // lo farebbe anche per un task non radice, causando il 409 "solo su un progetto radice"
+    fieldProjectCodeEditableWrapper.style.display = "none";
+    fieldProjectCodeReadonlyWrapper.style.display = "none";
+    return;
+  }
 
   const authorized = !!(state.currentUser && state.currentUser.can_set_project_code);
   fieldProjectCodeEditableWrapper.style.display = authorized ? "block" : "none";

@@ -386,6 +386,19 @@ td.leaf-title-cell:hover {
   flex-shrink: 0;
 }
 
+/* pallino permanente (non un badge testuale): foglia aperta, non delegata, di un progetto
+   con codice, senza tempo stimato — incentiva la stima corretta, stesso spirito del
+   rollup "tutto o niente" del tempo stimato */
+.missing-estimate-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d32f2f;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
 .sort-btn {
   border: none;
   background: none;

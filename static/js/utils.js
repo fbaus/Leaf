@@ -19,6 +19,8 @@ export const STATUS_ORDER = [1, 2, 3, 5, 4, 6, 7, 8, 9, 10];
 
 export const CLOSED_STATUSES = new Set([8, 9, 10]);
 
+export const STATUS_IN_LISTA = 7;
+
 export const STATUS_GROUPS = {
   FOCUS: null,
   OPERATIVE: [1, 2, 3, 5],

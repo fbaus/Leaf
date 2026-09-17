@@ -5,6 +5,7 @@ import {
   isOpenLeaf,
   byId,
   rootTitle,
+  rootProjectCode,
   truncate,
   STATUS_META,
   STATUS_GROUPS,
@@ -17,6 +18,7 @@ import {
   childrenIndex,
   openLeafDescendants,
   delegationCellText,
+  STATUS_IN_LISTA,
 } from "./utils.js";
 import { setFocus } from "./api.js";
 import { openEditModal } from "./modal.js";
@@ -161,6 +163,20 @@ function renderTable(mainPanel, tasksById) {
     titleText.title = "Vai nell'albero";
     titleText.onclick = () => jumpToTree(node.id);
     titleRow.appendChild(titleText);
+
+    // pallino rosso permanente: foglia aperta, non delegata, di un progetto con codice,
+    // priva di tempo stimato — stesso incentivo del rollup "tutto o niente", qui visibile
+    // subito sulla foglia stessa (vedi missingEstimateOnCodedProject in render_tree.js)
+    if (
+      node.label === "APERTO" && node.status !== STATUS_IN_LISTA
+      && !node.assegnato && node.executor_user_id == null
+      && node.estimated_days == null && rootProjectCode(node, tasksById) != null
+    ) {
+      const dot = document.createElement("span");
+      dot.className = "missing-estimate-dot";
+      dot.title = "Foglia aperta di un progetto con codice, senza tempo stimato";
+      titleRow.appendChild(dot);
+    }
 
     // il rosso (scaduto) prevale sul giallo (preavviso 7gg) se coincidono, come nell'albero
     if (node.expired) titleRow.appendChild(makeBadge("⏰", "Deadline superata"));

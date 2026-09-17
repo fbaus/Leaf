@@ -422,7 +422,7 @@ def resolve_dependency_status(dep_id, tasks_by_id, children_by_parent, cache):
     return result
 
 
-def compute_estimated_days_rollup(node_id, tasks_by_id, children_by_parent, cache):
+def compute_estimated_days_rollup(node_id, tasks_by_id, children_by_parent, cache, exclude_in_lista=False):
     """Tempo stimato 'effettivo' di un nodo: per una foglia è il suo valore proprio, ma solo
     se è attiva (label APERTO — una foglia CHIUSA è esclusa dal calcolo di qualsiasi
     antenato, anche se il suo valore resta salvato e visibile su se stessa); per un ramo è
@@ -432,11 +432,21 @@ def compute_estimated_days_rollup(node_id, tasks_by_id, children_by_parent, cach
     `executor_user_id`) è esclusa dal calcolo esattamente come una foglia CHIUSA: il tempo
     stimato passa sotto la responsabilità dell'esecutore, non è più "nostro" da sommare.
 
+    `exclude_in_lista=True` (usato solo dalla Vista Carico di lavoro, non dal "Tempo stimato"
+    generico mostrato su un ramo in Albero/Foglie) esclude anche le foglie in stato IN LISTA
+    (nessuna data di esecuzione ancora impostata): un task non ancora pianificato non deve
+    gonfiare il carico di lavoro *odierno*, anche se ha già una stima. Richiede che
+    `t["status"]` sia già stato calcolato sulle righe (vedi il loop status prima del rollup).
+
     Se anche un solo figlio attivo (foglia aperta o ramo) non ha un valore determinato —
     foglia senza stima, o ramo il cui calcolo è a sua volta indeterminato — l'intero nodo
     risulta indeterminato: niente somma parziale che ignora i "buchi", l'intera stima sale
-    come "---" fino a dove serve. Stesso esito (None, mostrato "—" dal frontend) se non
-    c'è proprio nessun figlio attivo da sommare."""
+    come "---" fino a dove serve. Se invece un ramo non ha NESSUN figlio attivo (tutti i
+    suoi figli sono foglie chiuse, delegate o in lista — un ramo figlio non è mai escluso da
+    questo filtro, quindi è l'unico modo in cui active_children può risultare vuoto), il suo
+    lavoro residuo è 0, non indeterminato: altrimenti un singolo sotto-ramo già interamente
+    concluso in un angolo del progetto azzererebbe a "—" la stima dell'intero progetto, anche
+    con tutte le foglie ancora aperte regolarmente stimate."""
     if node_id in cache:
         return cache[node_id]
     task = tasks_by_id[node_id]
@@ -447,14 +457,22 @@ def compute_estimated_days_rollup(node_id, tasks_by_id, children_by_parent, cach
 
     active_children = [
         c for c in children_by_parent.get(node_id, [])
-        if not (c["children_count"] == 0 and (c["label"] != "APERTO" or c["assegnato"] or c["executor_user_id"]))
+        if not (
+            c["children_count"] == 0
+            and (
+                c["label"] != "APERTO"
+                or c["assegnato"]
+                or c["executor_user_id"]
+                or (exclude_in_lista and c.get("status") == STATUS_IN_LISTA)
+            )
+        )
     ]
     if not active_children:
-        result = None
+        result = 0.0
     else:
         total = 0.0
         for child in active_children:
-            child_value = compute_estimated_days_rollup(child["id"], tasks_by_id, children_by_parent, cache)
+            child_value = compute_estimated_days_rollup(child["id"], tasks_by_id, children_by_parent, cache, exclude_in_lista)
             if child_value is None:
                 result = None
                 break
@@ -501,7 +519,7 @@ def compute_estimated_days_rollup_unscoped(node_id):
         if not (c["children_count"] == 0 and (c["label"] != "APERTO" or c["assegnato"] or c["executor_user_id"]))
     ]
     if not active_children:
-        return None
+        return 0.0  # tutti i figli chiusi/delegati: lavoro residuo nullo, non indeterminato
     total = 0.0
     for child in active_children:
         child_value = compute_estimated_days_rollup_unscoped(child["id"])
@@ -1443,10 +1461,15 @@ def get_workload():
         # CHIUSO: lo status resta quello reale già in colonna (SELECT t.* iniziale).
         # Ramo (label NULL): la colonna è già NULL di suo, nessun tocco necessario.
 
+    # exclude_in_lista=True solo qui: un task non ancora pianificato (nessuna data di
+    # esecuzione) non deve gonfiare il carico di lavoro *odierno*, anche se ha già una
+    # stima — a differenza del "Tempo stimato" generico mostrato su un ramo in Albero/Foglie
     estimated_cache = {}
     for t in tasks:
         if t["children_count"] > 0:
-            t["estimated_days"] = compute_estimated_days_rollup(t["id"], tasks_by_id, children_by_parent, estimated_cache)
+            t["estimated_days"] = compute_estimated_days_rollup(
+                t["id"], tasks_by_id, children_by_parent, estimated_cache, exclude_in_lista=True
+            )
 
     users_by_id = {u["id"]: u["username"] for u in query_db("SELECT id, username FROM users")}
 
@@ -1498,8 +1521,13 @@ def get_workload():
         # aggregato: avendo un codice è "approvato" dall'azienda, quindi è come se fosse
         # delegato da una decisione strategica esterna al software, non un task personale
         all_entries = delegated + own_projects
-        carichi = [e["carico_lavoro"] for e in all_entries]
-        workload_today = None if any(c is None for c in carichi) else round(sum(carichi), 1)
+        # a differenza del carico_lavoro del singolo task (dove un solo figlio senza stima
+        # azzera tutto a "—", per incentivare la stima corretta), la somma AGGREGATA per
+        # utente ignora semplicemente le voci "—" (stima mancante, o task IN LISTA non ancora
+        # pianificato — quest'ultimo ha comunque carico_lavoro None per conto suo) e somma solo
+        # i valori noti: altrimenti un solo task dimenticato azzererebbe l'intera vista
+        carichi = [e["carico_lavoro"] for e in all_entries if e["carico_lavoro"] is not None]
+        workload_today = round(sum(carichi), 1)
         users.append({
             "id": u["id"],
             "username": u["username"],
