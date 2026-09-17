@@ -333,6 +333,17 @@ export function barRangeForNode(node, buckets) {
 // Trascinamento delle barre (Data di esecuzione / Deadline, singolarmente o in blocco)
 // ---------------------------------------------------------------------------
 
+// per un puntino non trascinabile perché il nodo è delegato a un altro utente (vedi
+// isOwner nei chiamanti in render_calendar.js/render_gantt.js): stesso avviso ovunque
+// compaia questa situazione, calendario o Gantt
+export function attachLockedBarNotice(handle) {
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    alert("Solo l'esecutore può modificare le tempistiche di un'attività delegata.");
+  });
+}
+
 export function createDragTooltip() {
   const tooltip = document.createElement("div");
   tooltip.className = "calendar-drag-tooltip";

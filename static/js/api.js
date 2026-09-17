@@ -145,3 +145,7 @@ export function declineDelegation(id) {
 export function ackDelegationNotice(id) {
   return postJson(`/tasks/${id}/ack-delegation-notice`, "POST", {});
 }
+
+export function ackEscalation(id) {
+  return postJson(`/tasks/${id}/ack-escalation`, "POST", {});
+}

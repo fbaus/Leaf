@@ -85,7 +85,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.querySelectorAll(".view-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.currentView = btn.dataset.view;
-      render();
+      // cambiare vista è il gesto di "navigazione" più naturale e frequente: senza un
+      // refetch qui, un cambiamento fatto da un altro utente (es. l'esecutore di un task
+      // delegato che sposta la deadline) resta invisibile finché non si ricarica l'intera
+      // pagina — reload() rifà anche il render, non serve chiamarlo a parte
+      reload();
     });
   });
 

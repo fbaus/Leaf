@@ -10,6 +10,7 @@ import {
   barRangeForNode,
   attachBarHandleDrag,
   attachBarMoveDrag,
+  attachLockedBarNotice,
   cancelActiveDrag,
   beginExclusiveDrag,
   endExclusiveDrag,
@@ -151,21 +152,32 @@ function renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, su
     bar.title = node.title;
 
     if (DRAGGABLE_GRANULARITIES.has(granularity)) {
+      // un task delegato è modificabile solo dall'esecutore (owner): per il committente i
+      // puntini restano visibili ma solo informativi, con un avviso al posto del trascinamento
+      const isOwner = node.owner_id === state.currentUser?.id;
+
       const leftHandle = document.createElement("div");
-      leftHandle.className = "calendar-bar-handle left";
+      leftHandle.className = isOwner ? "calendar-bar-handle left" : "calendar-bar-handle left info-only";
       bar.appendChild(leftHandle);
-      attachBarHandleDrag(leftHandle, "left", node, buckets, totalWidth, inner, bar);
 
       const rightHandle = document.createElement("div");
-      rightHandle.className = "calendar-bar-handle right";
+      rightHandle.className = isOwner ? "calendar-bar-handle right" : "calendar-bar-handle right info-only";
       bar.appendChild(rightHandle);
-      attachBarHandleDrag(rightHandle, "right", node, buckets, totalWidth, inner, bar);
 
       const centerHandle = document.createElement("div");
-      centerHandle.className = "calendar-bar-handle center";
-      centerHandle.title = "Trascina per spostare l'intera barra";
+      centerHandle.className = isOwner ? "calendar-bar-handle center" : "calendar-bar-handle center info-only";
       bar.appendChild(centerHandle);
-      attachBarMoveDrag(centerHandle, node, buckets, totalWidth, inner, bar);
+
+      if (isOwner) {
+        centerHandle.title = "Trascina per spostare l'intera barra";
+        attachBarHandleDrag(leftHandle, "left", node, buckets, totalWidth, inner, bar);
+        attachBarHandleDrag(rightHandle, "right", node, buckets, totalWidth, inner, bar);
+        attachBarMoveDrag(centerHandle, node, buckets, totalWidth, inner, bar);
+      } else {
+        attachLockedBarNotice(leftHandle);
+        attachLockedBarNotice(rightHandle);
+        attachLockedBarNotice(centerHandle);
+      }
     }
 
     inner.appendChild(bar);

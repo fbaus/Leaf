@@ -1,6 +1,6 @@
 import {
   createTask, updateTask, setFocus, recomputeRollup,
-  fetchUsers, delegateTask, acceptDelegation, declineDelegation, ackDelegationNotice,
+  fetchUsers, delegateTask, acceptDelegation, declineDelegation, ackDelegationNotice, ackEscalation,
 } from "./api.js";
 import { STATUS_META, CLOSED_STATUSES, isLeaf, buildTree } from "./utils.js";
 import { state, reload } from "./state.js";
@@ -128,7 +128,9 @@ function applyOpenTaskRules() {
   fieldAssegnato.disabled = !canAssign;
   if (!canAssign) fieldAssegnato.value = "";
   fieldAssegnatoInterna.disabled = !canAssign;
-  delegaBtn.disabled = !canAssign;
+  // il bottone Delega resta inattivo finché non è indicato un esecutore, interno o esterno
+  const hasExecutor = !!fieldAssegnatoInterna.value || !!fieldAssegnato.value.trim();
+  delegaBtn.disabled = !canAssign || !hasExecutor;
 }
 
 fieldDeadline.addEventListener("change", () => {
@@ -140,6 +142,7 @@ fieldDeadline.addEventListener("change", () => {
 fieldExecutionDate.addEventListener("change", applyOpenTaskRules);
 
 fieldAssegnato.addEventListener("input", applyOpenTaskRules);
+fieldAssegnatoInterna.addEventListener("change", applyOpenTaskRules);
 
 // il focus ha effetto immediato (come dal menu contestuale dell'albero), non è
 // parte del payload salvato con "Salva": un solo task alla volta può averlo
@@ -228,9 +231,12 @@ function applyAssegnazioneSection(node, isOwner) {
   fieldAssegnazioneEditableWrapper.style.display = "none";
   fieldAssegnazioneExecutorWrapper.classList.add("hidden");
   fieldAssegnazioneCommittenteWrapper.classList.add("hidden");
-  if (!isLeaf(node)) return; // solo le foglie possono essere delegate
 
   const delegatedInternally = node.executor_user_id != null;
+  // per il committente il nodo resta "quella foglia delegata" anche se l'esecutore l'ha
+  // trasformato in un ramo (i figli reali, di un altro owner, non gli sono comunque mai
+  // visibili — vedi isLeafForViewer): solo per lui la sezione resta valida anche su un ramo
+  if (!isLeaf(node) && !(!isOwner && delegatedInternally)) return; // ramo vero, mai delegato
   const stato = node.delegation_status === "accettata" ? "accettata" : "in attesa";
 
   if (!isOwner) {
@@ -244,7 +250,12 @@ function applyAssegnazioneSection(node, isOwner) {
   if (delegatedInternally) {
     fieldAssegnazioneExecutorWrapper.classList.remove("hidden");
     fieldAssegnazioneExecutorInfo.textContent = `Delegato da: ${node.committente_username} (${stato})`;
-    fieldAssegnazioneExecutorActions.classList.toggle("hidden", node.delegation_status !== "in_attesa");
+    // in attesa: Accetta + Rifiuta. Già accettata: solo un bottone per restituire il task,
+    // rietichettato — stessa azione di backend (decline-delegation), significato diverso
+    const pending = node.delegation_status !== "accettata";
+    fieldAssegnazioneExecutorActions.classList.remove("hidden");
+    acceptDelegationBtn.classList.toggle("hidden", !pending);
+    declineDelegationBtn.textContent = pending ? "Rifiuta" : "Interrompi delega";
   } else {
     fieldAssegnazioneEditableWrapper.style.display = "block";
     fieldAssegnazioneInternaControls.style.display = "";
@@ -252,6 +263,9 @@ function applyAssegnazioneSection(node, isOwner) {
     fieldAssegnato.value = node.assegnato || "";
     fieldAssegnatoInterna.value = "";
     populateInternaSelect();
+    // i valori dei campi sono appena stati ripopolati: il disabled del bottone Delega
+    // (che dipende anche da loro, non solo da EX/DL) va ricalcolato di conseguenza
+    applyOpenTaskRules();
   }
 }
 
@@ -586,6 +600,18 @@ export async function openEditModal(node) {
       fresh = state.tasks.find((t) => t.id === fresh.id) || fresh;
     } catch (err) {
       // silenzioso: non deve impedire l'apertura in sola lettura
+    }
+  }
+
+  // stesso principio per l'escalation (badge 📅 + riga gialla): si spegne alla semplice
+  // apertura della configurazione, come le altre notifiche temporanee, non serve più salvare
+  if (isOwner && fresh.escalation) {
+    try {
+      await ackEscalation(fresh.id);
+      await reload();
+      fresh = state.tasks.find((t) => t.id === fresh.id) || fresh;
+    } catch (err) {
+      // silenzioso: non deve impedire l'apertura del modale
     }
   }
 

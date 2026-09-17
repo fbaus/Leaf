@@ -21,6 +21,7 @@ import {
   barRangeForNode,
   attachBarHandleDrag,
   attachBarMoveDrag,
+  attachLockedBarNotice,
   createDragTooltip,
   updateDragTooltip,
   parseISO,
@@ -559,7 +560,10 @@ function drawTimeline(rows, visibleIds) {
     // backend le rifiuterebbe): niente agganci di trascinamento sulla sua barra — ma i
     // pallini restano comunque utili come punto su cui passare il mouse per vedere la data
     if (isLeaf(node)) {
-      const draggable = DRAGGABLE_GRANULARITIES.has(granularity);
+      // un task delegato è modificabile solo dall'esecutore (owner): per il committente
+      // i puntini restano solo informativi, come per una data calcolata su un ramo
+      const isOwner = node.owner_id === state.currentUser?.id;
+      const draggable = DRAGGABLE_GRANULARITIES.has(granularity) && isOwner;
 
       const leftHandle = document.createElement("div");
       leftHandle.className = draggable ? "calendar-bar-handle left" : "calendar-bar-handle left info-only";
@@ -584,6 +588,11 @@ function drawTimeline(rows, visibleIds) {
         centerHandle.title = "Trascina per spostare l'intera barra";
         bar.appendChild(centerHandle);
         attachBarMoveDrag(centerHandle, node, buckets, totalWidth, timelineInner, bar, { onDrag });
+      } else if (DRAGGABLE_GRANULARITIES.has(granularity) && !isOwner) {
+        // se il nodo è visibile qui ma non è dell'owner corrente, è per forza perché il
+        // viewer ne è il committente (GET /tasks non restituirebbe righe altrui altrimenti)
+        attachLockedBarNotice(leftHandle);
+        attachLockedBarNotice(rightHandle);
       }
     }
 

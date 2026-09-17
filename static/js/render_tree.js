@@ -62,7 +62,12 @@ async function performMove(newParentId) {
   }
 }
 
-function attachDragHandlers(row, node) {
+// due capacità distinte, non sempre entrambe presenti sulla stessa riga: poter "prendere"
+// il nodo per spostarlo altrove, e poter "accettare" un nodo trascinato come nuovo figlio.
+// Per un task delegato internamente divergono: solo il committente può prenderlo (vedi
+// require_movable_task in app.py), ma resta solo l'esecutore a poter accettare nuovi figli
+// sotto di esso (stessa autorizzazione di "Aggiungi foglia")
+function attachDragSource(row, node) {
   row.draggable = true;
 
   row.addEventListener("dragstart", (e) => {
@@ -78,7 +83,9 @@ function attachDragHandlers(row, node) {
     draggedNode = null;
     draggedDescendantIds = new Set();
   });
+}
 
+function attachDropTarget(row, node) {
   row.addEventListener("dragover", (e) => {
     if (draggedNode === null) return;
     if (draggedNode.id === node.id || draggedDescendantIds.has(node.id)) return;
@@ -207,9 +214,17 @@ function renderNode(node, searchText) {
   if (node.expired) row.classList.add("row-expired");
   else if (node.escalation) row.classList.add("row-escalation");
   if (state.highlightedDepsIds.has(node.id)) row.classList.add("row-dep-highlight");
-  // un nodo visibile solo come committente non è draggabile: spostarlo fallirebbe
-  // comunque lato server (owner-only) e trascinarlo confonderebbe soltanto
-  if (isOwner) attachDragHandlers(row, node);
+  // chi può "prendere" il nodo per spostarlo: per un task delegato internamente è SOLO il
+  // committente (mai l'esecutore, vedi require_movable_task in app.py); per tutti gli altri
+  // nodi resta il solo owner, come prima
+  const canDragOut = node.committente_user_id != null
+    ? node.committente_user_id === state.currentUser?.id
+    : isOwner;
+  // chi può "accettare" il nodo trascinato come figlio: sempre e solo l'owner (stessa
+  // autorizzazione di "Aggiungi foglia") — il committente può riposizionare un task delegato
+  // fra i propri rami, ma non creargli figli sotto, che restano affari dell'esecutore
+  if (canDragOut) attachDragSource(row, node);
+  if (isOwner) attachDropTarget(row, node);
 
   const hasChildren = node.children.length > 0;
   let childrenUl = null;
@@ -270,6 +285,13 @@ function renderNode(node, searchText) {
       ? `Delegato da: ${node.committente_username} (${stato})`
       : `Delegato a: ${node.executor_username} (${stato})`;
     row.appendChild(makeBadge("🤝", tooltip, null, "delegation-badge"));
+  }
+
+  // stessa idea di expired_descendant: un ramo collassato deve comunque segnalare che, in
+  // profondità, un task delegato ha una notifica (cambio deadline o accettazione) ancora da
+  // vedere — altrimenti resterebbe invisibile finché non si espande tutto il sottoalbero
+  if (node.notice_descendant) {
+    row.appendChild(makeBadge("🔔", "Contiene un task delegato con una notifica non ancora vista", null, "delegation-badge"));
   }
 
   row.addEventListener("contextmenu", (e) => {

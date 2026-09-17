@@ -1,6 +1,7 @@
 import { state, reload, rerender } from "./state.js";
 import {
   isLeaf,
+  isLeafForViewer,
   isOpenLeaf,
   byId,
   rootTitle,
@@ -75,7 +76,7 @@ function renderColgroup(table) {
 }
 
 function renderTable(mainPanel, tasksById) {
-  let leaves = state.tasks.filter(isLeaf);
+  let leaves = state.tasks.filter((n) => isLeafForViewer(n, state.currentUser?.id));
   leaves = leaves.filter((n) => matchesStatusGroup(n, state.leafFilters.statusGroup));
   leaves = leaves.filter((n) => isRootIncluded(rootIdOf(n, tasksById)));
   leaves = sortRows(

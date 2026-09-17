@@ -32,6 +32,16 @@ export function isLeaf(node) {
   return node.children_count === 0;
 }
 
+// per il committente, un task delegato resta "quella foglia" anche se l'esecutore lo
+// trasforma in un ramo: i figli reali (di un altro owner) non gli sono comunque mai
+// visibili, quindi in Vista Foglie deve continuare a comparire come lavorabile invece di
+// sparire perché ha strutturalmente guadagnato dei figli — vedi lo status DELEGATO/IN
+// RITARDO che il backend gli assegna in questo stesso caso (app.py, GET /tasks)
+export function isLeafForViewer(node, currentUserId) {
+  if (isLeaf(node)) return true;
+  return node.committente_user_id === currentUserId && node.executor_user_id != null;
+}
+
 // una dipendenza (foglia diretta, o foglia dentro un ramo dipendenza) conta come "aperta"
 // solo se non è in uno stato chiuso — le stesse regole di STATUS_GROUPS.APERTE
 export function isOpenLeaf(node) {

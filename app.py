@@ -131,6 +131,23 @@ def require_visible_task(task_id):
     return task
 
 
+def require_movable_task(task_id):
+    """Chi può riposizionare un nodo nell'albero (PATCH .../parent). Un task NON delegato
+    segue la regola normale (solo l'owner). Un task delegato internamente può essere
+    spostato SOLO dal committente, mai dall'esecutore: l'esecutore lo vede comunque come
+    una radice nel proprio albero (il vero padre, del committente, non gli è visibile), quindi
+    spostarlo fra i propri rami lo scollegherebbe dalla struttura/progetto del committente
+    senza alcun beneficio — e potrebbe fargli perdere in silenzio un codice progetto
+    ereditato dal ramo originale, sostituendolo con quello (se c'è) del nuovo ramo
+    dell'esecutore, cosa che il committente non vedrebbe né deciderebbe mai."""
+    task = get_task(task_id)
+    if task is None:
+        return None
+    if task["committente_user_id"] is not None:
+        return task if task["committente_user_id"] == current_user_id() else None
+    return task if task["owner_id"] == current_user_id() else None
+
+
 def get_visible_note(note_id):
     return query_one(
         """
@@ -345,10 +362,22 @@ def compute_open_status(execution_date, deadline, assegnato, dep_statuses, today
     """Wrapper su _compute_open_status_base: per un task delegato internamente (owner
     corrente = esecutore) la progressione di stato resta quella normale, ma una volta
     superata la deadline lo stato passa comunque a IN RITARDO — a differenza della delega
-    esterna (`assegnato`), che segue invece il binario DELEGATO/IN RITARDO invariato."""
+    esterna (`assegnato`), che segue invece il binario DELEGATO/IN RITARDO invariato.
+
+    L'escalation (badge 📅 + riga gialla) non scatta mai per un task delegato, esattamente
+    come già non scatta per la delega esterna (il ramo `assegnato` di _compute_open_status_base
+    restituisce sempre escalated=False): senza questa esclusione, un task delegato
+    internamente che raggiunge la sua data di esecuzione veniva trattato come un task
+    "semplice" appena diventato ATTIVO — ma `assegnato` è sempre NULL per la delega interna,
+    quindi il ramo `if assegnato` della funzione base non lo intercetta mai da solo. Il badge
+    risultante restava perennemente acceso per il committente, che non ha alcun modo di
+    "salvare" il task (form in sola lettura) per spegnere escalation_seen come farebbe
+    normalmente il proprietario."""
     status, escalated = _compute_open_status_base(execution_date, deadline, assegnato, dep_statuses, today)
-    if is_delegated_internally and deadline is not None and today >= deadline and status != STATUS_IN_RITARDO:
-        return STATUS_IN_RITARDO, False
+    if is_delegated_internally:
+        escalated = False
+        if deadline is not None and today >= deadline and status != STATUS_IN_RITARDO:
+            status = STATUS_IN_RITARDO
     return status, escalated
 
 
@@ -419,6 +448,52 @@ def compute_estimated_days_rollup(node_id, tasks_by_id, children_by_parent, cach
             result = round(total, 1)
     cache[node_id] = result
     return result
+
+
+def compute_estimated_days_rollup_unscoped(node_id):
+    """Stessa identica logica di compute_estimated_days_rollup, ma cammina nel database
+    reale invece che nella sola porzione di albero visibile al viewer corrente (interroga il
+    db a ogni livello invece di usare children_by_parent). Serve per il rollup di un ramo
+    delegato internamente che il committente vede: l'esecutore può trasformarlo in un ramo
+    con propri figli, ma quei figli non compaiono mai in GET /tasks per il committente (sono
+    di un altro owner), quindi children_by_parent per lui sarebbe sempre vuoto e il rollup
+    "in memoria" darebbe sempre '—' anche quando l'esecutore ha regolarmente stimato i suoi
+    figli. Usata solo per questi nodi di confine (pochi per richiesta), non nel percorso
+    normale — il costo di query ripetute qui non è un problema a questa scala."""
+    row = query_one(
+        """
+        SELECT id, label, estimated_days, assegnato, executor_user_id,
+               (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = tasks.id) AS children_count
+        FROM tasks WHERE id = ?
+        """,
+        [node_id],
+    )
+    if row is None:
+        return None
+    if row["children_count"] == 0:
+        return row["estimated_days"] if row["label"] == "APERTO" else None
+
+    children = query_db(
+        """
+        SELECT id, label, assegnato, executor_user_id,
+               (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = tasks.id) AS children_count
+        FROM tasks WHERE parent_id = ?
+        """,
+        [node_id],
+    )
+    active_children = [
+        c for c in children
+        if not (c["children_count"] == 0 and (c["label"] != "APERTO" or c["assegnato"] or c["executor_user_id"]))
+    ]
+    if not active_children:
+        return None
+    total = 0.0
+    for child in active_children:
+        child_value = compute_estimated_days_rollup_unscoped(child["id"])
+        if child_value is None:
+            return None
+        total += child_value
+    return round(total, 1)
 
 
 def has_cycle_from(start_id, graph):
@@ -587,10 +662,25 @@ def recompute_rollup_dates(node_id):
     if new_execution_date == node["execution_date"] and new_deadline == node["deadline"]:
         return  # nessun cambiamento: niente da propagare più in alto
 
-    execute_db(
-        "UPDATE tasks SET execution_date = ?, deadline = ? WHERE id = ?",
-        (new_execution_date, new_deadline, node_id),
-    )
+    fields = {"execution_date": new_execution_date, "deadline": new_deadline}
+    # se questo nodo è la cima di una delega, un cambio di deadline dovuto al rollup dei
+    # figli dell'esecutore deve avvisare il committente esattamente come un cambio diretto
+    # (vedi update_task) — altrimenti, una volta che il nodo delegato diventa un ramo, la
+    # deadline cambia sempre per questa via (mai più con una PUT diretta sul nodo stesso,
+    # che ora è bloccata perché ha figli) e la notifica non scatterebbe più
+    if (
+        node["committente_user_id"] is not None
+        and new_deadline != node["deadline"]
+        and new_deadline
+        and node["deadline"]
+    ):
+        if new_deadline > node["deadline"]:
+            fields["delegation_notice"] = DELEGATION_NOTICE_POSTICIPATA
+        elif new_deadline > date.today().isoformat():
+            fields["delegation_notice"] = DELEGATION_NOTICE_ANTICIPATA
+
+    set_clause = ", ".join(f"{key} = ?" for key in fields)
+    execute_db(f"UPDATE tasks SET {set_clause} WHERE id = ?", (*fields.values(), node_id))
     if node["parent_id"] is not None:
         recompute_rollup_dates(node["parent_id"])
 
@@ -682,11 +772,31 @@ def get_tasks():
             if t["committente_user_id"] == current_user_id() and t["status"] != STATUS_IN_RITARDO:
                 t["status"] = STATUS_DELEGATO
 
+    # se l'esecutore trasforma il nodo delegato in un ramo (aggiungendogli figli), per il
+    # committente resta comunque concettualmente "quella foglia delegata": lui non vede mai i
+    # figli reali (di un altro owner), quindi deve continuare a vederlo come un task lavorabile
+    # con uno status, non come un ramo "vuoto" senza status che sparirebbe anche da Vista
+    # Foglie. Le date restano quelle già in colonna (rollup salvato, aggiornato dall'esecutore
+    # a ogni modifica dei suoi figli — vedi recompute_rollup_dates), quindi il confronto con
+    # la deadline resta valido anche qui
+    for t in tasks:
+        if t["committente_user_id"] == current_user_id() and t["executor_user_id"] is not None and t["children_count"] > 0:
+            t["status"] = STATUS_IN_RITARDO if (t["deadline"] and today >= t["deadline"]) else STATUS_DELEGATO
+
     # tempo stimato di un ramo: mai memorizzato (la colonna resta NULL, azzerata nello
     # stesso istante in cui una foglia guadagna il primo figlio), sempre ricalcolato qui
     # come somma delle foglie discendenti attive — sovrascrive solo per i rami, il valore
     # di una foglia è già quello vero letto dal db (SELECT t.* più sopra)
     estimated_cache = {}
+    # per un ramo delegato (children_by_parent, limitato a ciò che QUESTO viewer vede, non
+    # conterrebbe i figli reali se il viewer è il committente e l'esecutore li ha creati),
+    # pre-carica in cache il valore vero calcolato interrogando il database reale: la
+    # ricorsione sotto lo trova già pronto (prima riga della funzione: "if node_id in
+    # cache") e lo somma correttamente anche negli antenati, invece di propagare "—" verso
+    # l'alto solo perché il committente non vede quel sottoalbero
+    for t in tasks:
+        if t["children_count"] > 0 and t["committente_user_id"] == current_user_id():
+            estimated_cache[t["id"]] = compute_estimated_days_rollup_unscoped(t["id"])
     for t in tasks:
         if t["children_count"] > 0:
             t["estimated_days"] = compute_estimated_days_rollup(t["id"], tasks_by_id, children_by_parent, estimated_cache)
@@ -694,11 +804,21 @@ def get_tasks():
     # propaga "expired" verso l'alto (padre, nonno, ... fino alla radice): un ramo non è mai
     # "expired" di suo (la sua deadline è il rollup MAX dei figli, quindi in genere non ancora
     # raggiunta anche quando un figlio più urgente lo è già), ma deve comunque segnalare la
-    # presenza di una foglia scaduta al suo interno senza dover essere espanso
+    # presenza di una foglia scaduta al suo interno senza dover essere espanso.
+    # Un nodo delegato diventato ramo non ha mai `expired` true (EXPIRED_SQL richiede
+    # label='APERTO', che un ramo non ha più) anche quando per il committente il suo status è
+    # IN_RITARDO: senza includerlo esplicitamente qui, quel ritardo non risalirebbe mai verso
+    # gli antenati con l'albero collassato.
     for t in tasks:
         t["expired_descendant"] = False
     for t in tasks:
-        if not t["expired"]:
+        is_delegated_branch_late = (
+            t["committente_user_id"] == current_user_id()
+            and t["executor_user_id"] is not None
+            and t["children_count"] > 0
+            and t["status"] == STATUS_IN_RITARDO
+        )
+        if not t["expired"] and not is_delegated_branch_late:
             continue
         pid = t["parent_id"]
         while pid is not None:
@@ -706,6 +826,24 @@ def get_tasks():
             if parent is None or parent["expired_descendant"]:
                 break
             parent["expired_descendant"] = True
+            pid = parent["parent_id"]
+
+    # stessa propagazione verso l'alto, questa volta per la notifica di delega non ancora
+    # vista dal committente: senza risalire fino alla radice, una notifica su una foglia
+    # profonda resterebbe invisibile con l'albero collassato. Risale solo lungo gli antenati
+    # del committente stesso (tasks_by_id è già filtrato per lui), che sono sempre gli stessi
+    # a cui appartiene anche il nodo delegato (la delega non cambia mai il parent_id)
+    for t in tasks:
+        t["notice_descendant"] = False
+    for t in tasks:
+        if t["committente_user_id"] != current_user_id() or not t["delegation_notice"]:
+            continue
+        pid = t["parent_id"]
+        while pid is not None:
+            parent = tasks_by_id.get(pid)
+            if parent is None or parent["notice_descendant"]:
+                break
+            parent["notice_descendant"] = True
             pid = parent["parent_id"]
 
     return jsonify(tasks)
@@ -897,11 +1035,15 @@ def update_task(task_id):
         fields["escalation_seen"] = 1
 
     # l'esecutore può sempre spostare la deadline di un task delegato: il committente deve
-    # accorgersene subito, quindi il titolo si colora finché non apre la configurazione
+    # accorgersene subito, quindi il titolo si colora finché non apre la configurazione.
+    # Eccezione: se l'anticipo porta la deadline a oggi o prima, niente notifica verde —
+    # il task è già (o sta per essere) IN RITARDO, e quella gestione segnala già la cosa
+    # da sola (stesso status per esecutore e committente) senza bisogno di un avviso in più
     if task["committente_user_id"] is not None and new_dl != task["deadline"] and new_dl and task["deadline"]:
-        fields["delegation_notice"] = (
-            DELEGATION_NOTICE_POSTICIPATA if new_dl > task["deadline"] else DELEGATION_NOTICE_ANTICIPATA
-        )
+        if new_dl > task["deadline"]:
+            fields["delegation_notice"] = DELEGATION_NOTICE_POSTICIPATA
+        elif new_dl > date.today().isoformat():
+            fields["delegation_notice"] = DELEGATION_NOTICE_ANTICIPATA
 
     statements = []
     if fields:
@@ -951,7 +1093,7 @@ def set_focus(task_id):
 
 @app.route("/tasks/<int:task_id>/parent", methods=["PATCH"])
 def move_task(task_id):
-    task = require_owned_task(task_id)
+    task = require_movable_task(task_id)
     if task is None:
         return {"error": "Task non trovato"}, 404
 
@@ -1126,9 +1268,9 @@ def delegate_task(task_id):
         return {"status": "ok"}
 
     # nessuno dei due campi: revoca la delega esterna esistente. Una delega interna attiva
-    # non può essere disconnessa così — serve passare da Accetta/Rifiuta lato esecutore.
+    # non può essere disconnessa così — serve passare da Rifiuta/Interrompi delega lato esecutore.
     if task["executor_user_id"] is not None:
-        return {"error": "Usa Accetta/Rifiuta per una delega interna, non è revocabile direttamente"}, 409
+        return {"error": "Usa Rifiuta/Interrompi delega, non è revocabile direttamente dal committente"}, 409
     execute_db(
         "UPDATE tasks SET assegnato = NULL, committente_user_id = NULL, executor_user_id = NULL, "
         "delegation_status = NULL, delegation_notice = NULL WHERE id = ?",
@@ -1151,9 +1293,18 @@ def accept_delegation(task_id):
 
 @app.route("/tasks/<int:task_id>/decline-delegation", methods=["POST"])
 def decline_delegation(task_id):
+    """Restituisce il task al committente: stessa transizione sia per il rifiuto di una
+    delega non ancora accettata sia per l'interruzione volontaria di una già accettata —
+    cambia solo l'etichetta del bottone mostrata dal frontend in base allo stato. Bloccata
+    se l'esecutore ha già costruito una discendenza propria sotto il nodo: restituirlo
+    lascerebbe quei figli (ancora suoi) appesi sotto un nodo tornato del committente."""
     task = get_task(task_id)
-    if task is None or task["executor_user_id"] != current_user_id() or task["delegation_status"] != DELEGATION_IN_ATTESA:
+    if task is None or task["executor_user_id"] != current_user_id():
         return {"error": "Task non trovato"}, 404
+    if task["children_count"] > 0:
+        return {
+            "error": "Non è possibile restituire un task delegato che ha già una propria discendenza"
+        }, 409
     execute_db(
         """
         UPDATE tasks SET
@@ -1172,6 +1323,18 @@ def ack_delegation_notice(task_id):
     if task is None or task["committente_user_id"] != current_user_id():
         return {"error": "Task non trovato"}, 404
     execute_db("UPDATE tasks SET delegation_notice = NULL WHERE id = ?", (task_id,))
+    return {"status": "ok"}
+
+
+@app.route("/tasks/<int:task_id>/ack-escalation", methods=["POST"])
+def ack_escalation(task_id):
+    """Spegne il badge/riga gialla di escalation alla semplice apertura della
+    configurazione, come le altre notifiche temporanee — non serve più salvare. Se le date
+    cambiano davvero e si salva, update_task la riarma comunque (escalation_seen torna a 0)."""
+    task = require_owned_task(task_id)
+    if task is None:
+        return {"error": "Task non trovato"}, 404
+    execute_db("UPDATE tasks SET escalation_seen = 1 WHERE id = ?", (task_id,))
     return {"status": "ok"}
 
 
