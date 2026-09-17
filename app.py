@@ -675,6 +675,13 @@ def get_tasks():
             t["status"] = computed_status
             t["escalation"] = escalated and not t["escalation_seen"]
 
+            # il committente non deve vedere la progressione interna dell'esecutore (Pianificato/
+            # Dipendente/Bloccato/Attivo sono "affari" dell'esecutore): per lui un task delegato
+            # internamente resta un generico DELEGATO finché non scade la deadline, esattamente
+            # come già accade per la delega esterna — stessa etichetta/colore, stesso significato
+            if t["committente_user_id"] == current_user_id() and t["status"] != STATUS_IN_RITARDO:
+                t["status"] = STATUS_DELEGATO
+
     # tempo stimato di un ramo: mai memorizzato (la colonna resta NULL, azzerata nello
     # stesso istante in cui una foglia guadagna il primo figlio), sempre ricalcolato qui
     # come somma delle foglie discendenti attive — sovrascrive solo per i rami, il valore
@@ -856,6 +863,13 @@ def update_task(task_id):
         elif label == "APERTO":
             if "status" in fields:
                 return {"error": "Lo status di un task APERTO è calcolato automaticamente"}, 409
+            # una volta delegato internamente, l'esecutore può spostare le date ma non
+            # azzerarle: altrimenti lo status tornerebbe IN LISTA, che per un task delegato
+            # non ha senso (il committente lo vedrebbe come "delegato" senza che lo sia più)
+            if task["executor_user_id"] is not None and (execution_date is None or deadline is None):
+                return {
+                    "error": "Un task delegato internamente non può restare senza data di esecuzione o deadline"
+                }, 409
             execution_date = enforce_open_task_rules(fields, execution_date, deadline, assegnato, final_dependency_ids)
             fields["status"] = None
         else:
