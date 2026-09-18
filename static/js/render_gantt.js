@@ -69,8 +69,9 @@ let hasScrolledToToday = false;
 // "auto-guarigione" contro eventuali derive (es. dati storici precedenti al rollup),
 // non solo l'aggiornamento incrementale già garantito a ogni singola modifica
 export async function openGanttView(node) {
-  granularity = "giorno";
-  expandedIds = new Set();
+  // "settimana" è la key interna del bottone mostrato come "Mese" (le etichette sono
+  // scalate di un gradino rispetto alle key storiche, vedi GRANULARITIES in timeline.js)
+  granularity = "settimana";
   hasScrolledToToday = false;
   try {
     await recomputeRollup(node.id);
@@ -79,6 +80,8 @@ export async function openGanttView(node) {
     alert(err.message);
   }
   rootId = node.id;
+  // aperto già tutto espanso, non serve più un clic su "Espandi tutto" ogni volta
+  expandedIds = new Set(collectExpandableIds(node.id));
   overlay.classList.remove("hidden");
   draw();
 }
