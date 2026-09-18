@@ -35,6 +35,15 @@ export function renderChecklist(container, taskId, onConverted) {
 
     if (item.id === null) {
       if (!item.description || !item.description.trim()) return;
+      // una riga appena creata resta "in creazione" fino a che il POST non torna: senza
+      // questa guardia, passare subito dalla Descrizione all'Assegnato (un solo click)
+      // fa scattare un secondo salvataggio sulla stessa riga-bozza ancora con id null —
+      // sia perché draw() rimuove dal DOM l'input a cui si era appena passato focus
+      // (il browser genera da solo un blur sull'elemento rimosso) sia per un doppio blur
+      // molto rapido — e ognuno di questi creerebbe un NUOVO elemento con la stessa
+      // descrizione invece di aggiornare quello che si sta già creando
+      if (item._creating) return;
+      item._creating = true;
       try {
         const saved = await addChecklistItem(taskId, {
           description: item.description.trim(),
@@ -42,10 +51,16 @@ export function renderChecklist(container, taskId, onConverted) {
           execution_date: item.execution_date || null,
           deadline: item.deadline || null,
         });
+        // stessa istanza, non un oggetto separato: qualunque altro gestore che avesse
+        // ancora un riferimento a questa riga (bozza) la vede ora con l'id vero, e un
+        // eventuale salvataggio successivo aggiorna invece di ricreare
+        Object.assign(item, saved);
+        delete item._creating;
         draft = null;
-        items.push(saved);
+        items.push(item);
         draw();
       } catch (err) {
+        delete item._creating;
         alert(err.message);
       }
       return;
