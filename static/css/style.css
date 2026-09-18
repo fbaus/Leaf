@@ -479,6 +479,127 @@ td.leaf-title-cell:hover {
   width: calc(100% - 26px);
 }
 
+.workload-chart-toolbar {
+  display: flex;
+  gap: 6px;
+}
+
+.workload-chart-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 26px;
+}
+
+.workload-chart-toggle-label {
+  font-size: 13px;
+  color: #555;
+}
+
+/* grafico storico del carico di un utente (render_workload_chart.js): altezza fissa e
+   contenuta (non deve dominare la vista), asse dei valori a sinistra fisso mentre l'area
+   del grafico scorre in orizzontale al variare della granularità */
+.workload-chart-wrapper {
+  height: 25vh;
+  margin: 4px 0 14px 26px;
+  width: calc(100% - 26px);
+  border: 1px solid #eee;
+  border-radius: 6px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.workload-chart-body {
+  display: flex;
+  height: 100%;
+}
+
+.workload-chart-axis {
+  flex: 0 0 auto;
+  width: 36px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #eee;
+}
+
+.workload-chart-axis-spacer {
+  flex-shrink: 0;
+  border-bottom: 1px solid #ddd;
+}
+
+.workload-chart-axis-labels {
+  position: relative;
+  flex: 1 1 auto;
+}
+
+.workload-chart-axis-label {
+  position: absolute;
+  right: 4px;
+  transform: translateY(-50%);
+  font-size: 10px;
+  color: #888;
+}
+
+.workload-chart-scroll {
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.workload-chart-inner {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.workload-chart-header {
+  flex-shrink: 0;
+  display: flex;
+  border-bottom: 1px solid #ddd;
+  white-space: nowrap;
+}
+
+.workload-chart-bucket-header {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 10px;
+  line-height: 1.2;
+  box-sizing: border-box;
+  border-right: 1px solid #eee;
+}
+
+.workload-chart-svg {
+  flex: 1 1 auto;
+  width: 100%;
+  display: block;
+}
+
+.workload-chart-gridline {
+  stroke: #e0e0e0;
+  stroke-width: 1;
+}
+
+.workload-chart-today-line {
+  stroke: #e53935;
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+
+.workload-chart-global-line {
+  fill: none;
+  stroke: #333;
+  stroke-width: 2.5;
+}
+
+.workload-chart-overlay-line {
+  fill: none;
+  stroke-width: 2;
+}
+
 .root-checklist {
   border: 1px solid #eee;
   border-radius: 6px;

@@ -560,28 +560,102 @@ def count_business_days(start_date, end_date):
     return business_days
 
 
-def compute_carico_lavoro(execution_date, estimated_days, deadline, today=None):
-    """Percentuale di carico di lavoro di un task, spalmato in modo costante su tutta la
-    finestra EX→DL (giorni lavorativi, weekend esclusi dal tempo disponibile): tempo stimato
-    diviso giorni lavorativi disponibili corretti per la capacità produttiva media. Non cresce
-    approssimandosi alla deadline — è la stessa formula usata per il grafico storico del
-    carico, non più legata a "quanto manca da adesso" ma solo alla durata pianificata. 0.0 se
-    il task non è ancora iniziato (oggi < EX). None se manca tempo stimato, data di esecuzione
-    o deadline (mostrato '—' — disincentiva le stime mancanti)."""
-    if estimated_days is None or not execution_date or not deadline:
-        return None
-    if today is None:
-        today = date.today()
-    ex = date.fromisoformat(execution_date)
-    if today < ex:
-        return 0.0
-    dl = date.fromisoformat(deadline)
+def _leaf_is_schedulable(node):
+    """Foglia aperta, con stima e date proprie, non IN LISTA — condizione comune a
+    _leaf_carico_lavoro e a collect_active_leaves: una foglia CHIUSA, delegata (il chiamante
+    la esclude già prima di ricorrere, vedi compute_carico_lavoro_rollup/collect_active_leaves),
+    IN LISTA o senza stima/date non pesa mai nel carico di lavoro."""
+    return (
+        node["label"] == "APERTO"
+        and node["status"] != STATUS_IN_LISTA
+        and node["estimated_days"] is not None
+        and bool(node["execution_date"])
+        and bool(node["deadline"])
+    )
+
+
+def _leaf_plateau_value(node):
+    """Altezza costante (%) del carico di una foglia programmabile per tutta la sua finestra
+    EX-DL (giorni lavorativi, weekend esclusi dal tempo disponibile) — non dipende da quale
+    giorno sia "oggi", solo dalla stima e dalla durata lavorativa della finestra: usata sia
+    per il carico odierno (_leaf_carico_lavoro, zero se oggi è fuori dalla finestra) sia per
+    il grafico storico (collect_active_leaves, che manda al frontend l'intera finestra)."""
+    ex = date.fromisoformat(node["execution_date"])
+    dl = date.fromisoformat(node["deadline"])
     giorni_disponibili = count_business_days(ex, dl)
     tempo_disponibile = max(
         giorni_disponibili * CAPACITA_PRODUTTIVA_MEDIA,
         TEMPO_DISPONIBILE_MINIMO_GIORNI,
     )
-    return round(estimated_days / tempo_disponibile * 100, 1)
+    return round(node["estimated_days"] / tempo_disponibile * 100, 1)
+
+
+def _leaf_carico_lavoro(node, today):
+    """Base della ricorsione di compute_carico_lavoro_rollup: il carico costante di UNA
+    foglia, diverso da zero solo nei giorni della sua finestra EX-DL — 0.0 se non è
+    programmabile (vedi _leaf_is_schedulable) o se oggi è fuori dalla finestra (prima di EX o
+    dopo DL: il carico non deve né crescere approssimandosi alla deadline né restare acceso a
+    tempo indefinito dopo che la finestra pianificata è terminata)."""
+    if not _leaf_is_schedulable(node):
+        return 0.0
+    ex = date.fromisoformat(node["execution_date"])
+    dl = date.fromisoformat(node["deadline"])
+    if not (ex <= today <= dl):
+        return 0.0
+    return _leaf_plateau_value(node)
+
+
+def collect_active_leaves(node_id, tasks_by_id, children_by_parent):
+    """Foglie attive (programmabili, non delegate a qualunque livello di annidamento) nel
+    sottoalbero di node_id, con i soli campi che servono al grafico storico del carico
+    (render_workload_chart.js): ciascuna pesa nel grafico solo nei giorni della propria
+    finestra EX-DL con l'altezza costante `value`, mai spalmata sull'intera durata del
+    progetto — stessa identica regola di compute_carico_lavoro_rollup, di cui questa è la
+    versione "elenca le foglie" invece di "sommane il carico odierno"."""
+    node = tasks_by_id[node_id]
+    children = children_by_parent.get(node_id, [])
+    if not children:
+        if not _leaf_is_schedulable(node):
+            return []
+        return [{
+            "execution_date": node["execution_date"],
+            "deadline": node["deadline"],
+            "value": _leaf_plateau_value(node),
+        }]
+    leaves = []
+    for child in children:
+        if child["executor_user_id"] is not None or child["assegnato"]:
+            continue
+        leaves.extend(collect_active_leaves(child["id"], tasks_by_id, children_by_parent))
+    return leaves
+
+
+def compute_carico_lavoro_rollup(node_id, tasks_by_id, children_by_parent, cache, today=None):
+    """Carico di lavoro *odierno* (%) di un nodo. Per una foglia, `_leaf_carico_lavoro`. Per
+    un ramo, la somma ricorsiva del carico dei figli — MAI il tempo stimato totale diviso
+    per la durata dell'intera finestra del progetto (quella formula assumeva un ritmo
+    costante su tutto l'arco del progetto, che cresceva in modo scorretto quando le finestre
+    dei singoli task erano più brevi o sfalsate rispetto a quella complessiva). Un figlio
+    delegato è escluso dalla somma a qualunque livello di annidamento, anche se è diventato a
+    sua volta un ramo (il suo carico appartiene interamente alla voce dell'esecutore in
+    get_workload, non va contato due volte)."""
+    if node_id in cache:
+        return cache[node_id]
+    if today is None:
+        today = date.today()
+    node = tasks_by_id[node_id]
+    children = children_by_parent.get(node_id, [])
+    if not children:
+        result = _leaf_carico_lavoro(node, today)
+    else:
+        total = 0.0
+        for child in children:
+            if child["executor_user_id"] is not None or child["assegnato"]:
+                continue
+            total += compute_carico_lavoro_rollup(child["id"], tasks_by_id, children_by_parent, cache, today)
+        result = round(total, 1)
+    cache[node_id] = result
+    return result
 
 
 def has_cycle_from(start_id, graph):
@@ -1471,16 +1545,8 @@ def get_workload():
         # CHIUSO: lo status resta quello reale già in colonna (SELECT t.* iniziale).
         # Ramo (label NULL): la colonna è già NULL di suo, nessun tocco necessario.
 
-    # exclude_in_lista=True solo qui: un task non ancora pianificato (nessuna data di
-    # esecuzione) non deve gonfiare il carico di lavoro *odierno*, anche se ha già una
-    # stima — a differenza del "Tempo stimato" generico mostrato su un ramo in Albero/Foglie
-    estimated_cache = {}
-    for t in tasks:
-        if t["children_count"] > 0:
-            t["estimated_days"] = compute_estimated_days_rollup(
-                t["id"], tasks_by_id, children_by_parent, estimated_cache, exclude_in_lista=True
-            )
-
+    today_date = date.today()
+    carico_cache = {}
     users_by_id = {u["id"]: u["username"] for u in query_db("SELECT id, username FROM users")}
 
     entries_by_executor = {}
@@ -1498,7 +1564,8 @@ def get_workload():
                 "project_code": project_code,
                 "title": t["title"],
                 "avanzamento": compute_avanzamento(t["execution_date"], t["deadline"]),
-                "carico_lavoro": compute_carico_lavoro(t["execution_date"], t["estimated_days"], t["deadline"]),
+                "carico_lavoro": compute_carico_lavoro_rollup(t["id"], tasks_by_id, children_by_parent, carico_cache, today_date),
+                "leaves": collect_active_leaves(t["id"], tasks_by_id, children_by_parent),
                 "status": t["status"],
                 "committente_username": users_by_id.get(t["committente_user_id"]),
                 "executor_username": users_by_id.get(t["executor_user_id"]),
@@ -1512,7 +1579,8 @@ def get_workload():
                 "project_code": t["project_code"],
                 "title": t["title"],
                 "avanzamento": compute_avanzamento(t["execution_date"], t["deadline"]),
-                "carico_lavoro": compute_carico_lavoro(t["execution_date"], t["estimated_days"], t["deadline"]),
+                "carico_lavoro": compute_carico_lavoro_rollup(t["id"], tasks_by_id, children_by_parent, carico_cache, today_date),
+                "leaves": collect_active_leaves(t["id"], tasks_by_id, children_by_parent),
                 "status": t["status"],
                 "committente_username": None,
                 "executor_username": users_by_id.get(t["owner_id"]),
@@ -1531,13 +1599,10 @@ def get_workload():
         # aggregato: avendo un codice è "approvato" dall'azienda, quindi è come se fosse
         # delegato da una decisione strategica esterna al software, non un task personale
         all_entries = delegated + own_projects
-        # a differenza del carico_lavoro del singolo task (dove un solo figlio senza stima
-        # azzera tutto a "—", per incentivare la stima corretta), la somma AGGREGATA per
-        # utente ignora semplicemente le voci "—" (stima mancante, o task IN LISTA non ancora
-        # pianificato — quest'ultimo ha comunque carico_lavoro None per conto suo) e somma solo
-        # i valori noti: altrimenti un solo task dimenticato azzererebbe l'intera vista
-        carichi = [e["carico_lavoro"] for e in all_entries if e["carico_lavoro"] is not None]
-        workload_today = round(sum(carichi), 1)
+        # compute_carico_lavoro_rollup non ritorna mai None (una foglia senza stima, IN LISTA
+        # o chiusa contribuisce semplicemente 0, vedi _leaf_carico_lavoro): la somma aggregata
+        # è quindi una semplice somma, senza bisogno di ignorare voci mancanti
+        workload_today = round(sum(e["carico_lavoro"] for e in all_entries), 1)
         users.append({
             "id": u["id"],
             "username": u["username"],

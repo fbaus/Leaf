@@ -4,7 +4,14 @@ export const state = {
   tasks: [],
   workloadUsers: [], // dati della vista "Carico di lavoro" (GET /workload), caricati on-demand
   expandedWorkloadUserIds: new Set(),
-  workloadCalendarOpen: false,
+  // id utente -> il suo grafico storico è aperto (indipendente dall'espansione della riga
+  // utente: il grafico non è sempre visibile, va aperto a parte col suo bottone freccia)
+  expandedWorkloadChartUserIds: new Set(),
+  // granularità condivisa fra tutti i grafici storici degli utenti espansi (render_workload_chart.js)
+  workloadGranularity: "settimana",
+  // id dei singoli task (progetti/deleghe) con la spunta "grafico" attiva, sovrapposti al
+  // grafico globale del rispettivo utente — condiviso perché gli id sono univoci in tutta l'app
+  workloadCheckedEntryIds: new Set(),
   currentUser: null, // { id, username, is_superuser } dopo login/fetchMe riusciti, altrimenti null
   currentView: "albero",
   expandedIds: new Set(),

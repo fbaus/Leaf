@@ -6,18 +6,11 @@
 // l'unica vista che mostra dati di utenti diversi dal proprio (solo task con un codice
 // progetto aziendale: i personali restano privati come ovunque nell'app).
 import { state, rerender } from "./state.js";
-import { STATUS_META } from "./utils.js";
-import { fetchWorkload } from "./api.js";
-import { renderCalendarOverlay } from "./render_calendar.js";
+import { GRANULARITIES } from "./timeline.js";
+import { renderWorkloadChart, colorForIndex } from "./render_workload_chart.js";
 
 function fmtPercent(value) {
   return value === null || value === undefined ? "—" : `${value}%`;
-}
-
-function statusText(status) {
-  if (!status) return "—";
-  const meta = STATUS_META[status];
-  return meta ? `${meta.symbol} ${meta.label}` : "—";
 }
 
 function allEntriesOf(user) {
@@ -28,23 +21,49 @@ function allEntriesOf(user) {
 // Elenco utenti espandibile (vista di default)
 // ---------------------------------------------------------------------------
 
+// Status ed Esecutore non compaiono: lo Status non ha senso su un progetto (solo le sue
+// foglie ne hanno uno, vedi domain rules), e l'Esecutore è per costruzione sempre l'utente
+// di questa riga (vedi entries_by_executor/own_projects_by_owner in get_workload)
 const DETAIL_COLUMNS = [
   { key: "project_code", label: "Progetto" },
   { key: "title", label: "Titolo" },
   { key: "avanzamento", label: "Avanzamento", fmt: fmtPercent },
   { key: "carico_lavoro", label: "Carico di lavoro", fmt: fmtPercent },
-  { key: "status", label: "Status", fmt: statusText },
   { key: "committente_username", label: "Committente" },
-  { key: "executor_username", label: "Esecutore" },
   { key: "execution_date", label: "Data esecuzione" },
   { key: "deadline", label: "Deadline" },
 ];
 
-function renderDetailTable(entries) {
+// sottoinsieme di `entries` con la spunta "grafico" attiva, nello stesso ordine in cui
+// compaiono nella tabella: determina sia il colore sovrapposto nel grafico (colorForIndex)
+// sia quello con cui il titolo si evidenzia nella riga corrispondente qui sotto
+function checkedEntriesOf(entries) {
+  return entries.filter((e) => state.workloadCheckedEntryIds.has(e.id));
+}
+
+function renderDetailTable(entries, checked) {
+  const colorIndexById = new Map(checked.map((e, i) => [e.id, i]));
+
   const table = document.createElement("table");
   table.className = "workload-detail-table";
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
+
+  const thCheck = document.createElement("th");
+  const selectAll = document.createElement("input");
+  selectAll.type = "checkbox";
+  selectAll.title = "Sovrapponi/rimuovi il grafico di tutti i progetti di questo utente";
+  selectAll.checked = entries.length > 0 && entries.every((e) => state.workloadCheckedEntryIds.has(e.id));
+  selectAll.onchange = () => {
+    entries.forEach((e) => {
+      if (selectAll.checked) state.workloadCheckedEntryIds.add(e.id);
+      else state.workloadCheckedEntryIds.delete(e.id);
+    });
+    rerender();
+  };
+  thCheck.appendChild(selectAll);
+  headRow.appendChild(thCheck);
+
   DETAIL_COLUMNS.forEach((col) => {
     const th = document.createElement("th");
     th.textContent = col.label;
@@ -56,10 +75,28 @@ function renderDetailTable(entries) {
   const tbody = document.createElement("tbody");
   entries.forEach((entry) => {
     const tr = document.createElement("tr");
+
+    const tdCheck = document.createElement("td");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.title = "Sovrapponi il grafico di questo progetto a quello globale";
+    checkbox.checked = state.workloadCheckedEntryIds.has(entry.id);
+    checkbox.onchange = () => {
+      if (checkbox.checked) state.workloadCheckedEntryIds.add(entry.id);
+      else state.workloadCheckedEntryIds.delete(entry.id);
+      rerender();
+    };
+    tdCheck.appendChild(checkbox);
+    tr.appendChild(tdCheck);
+
     DETAIL_COLUMNS.forEach((col) => {
       const td = document.createElement("td");
       const raw = entry[col.key];
       td.textContent = col.fmt ? col.fmt(raw) : raw || "—";
+      if (col.key === "title" && colorIndexById.has(entry.id)) {
+        td.style.color = colorForIndex(colorIndexById.get(entry.id));
+        td.style.fontWeight = "bold";
+      }
       tr.appendChild(td);
     });
     tbody.appendChild(tr);
@@ -111,7 +148,33 @@ function renderUserRow(user) {
       empty.textContent = "Nessun task aziendale delegato o progetto proprio con codice.";
       wrapper.appendChild(empty);
     } else {
-      wrapper.appendChild(renderDetailTable(entries));
+      const checked = checkedEntriesOf(entries);
+
+      // il grafico storico non è sempre visibile: si apre a parte, con un secondo bottone
+      // freccia indipendente dall'espansione della riga utente (stesso stile del ▶/▼ sopra)
+      const chartExpanded = state.expandedWorkloadChartUserIds.has(user.id);
+      const chartToggleRow = document.createElement("div");
+      chartToggleRow.className = "workload-chart-toggle-row";
+      const chartToggle = document.createElement("button");
+      chartToggle.className = "toggle-btn";
+      chartToggle.textContent = chartExpanded ? "▼" : "▶";
+      chartToggle.onclick = () => {
+        if (chartExpanded) state.expandedWorkloadChartUserIds.delete(user.id);
+        else state.expandedWorkloadChartUserIds.add(user.id);
+        rerender();
+      };
+      chartToggleRow.appendChild(chartToggle);
+      const chartToggleLabel = document.createElement("span");
+      chartToggleLabel.className = "workload-chart-toggle-label";
+      chartToggleLabel.textContent = "Grafico storico";
+      chartToggleRow.appendChild(chartToggleLabel);
+      wrapper.appendChild(chartToggleRow);
+
+      if (chartExpanded) {
+        wrapper.appendChild(renderWorkloadChart(entries, checked, state.workloadGranularity));
+      }
+
+      wrapper.appendChild(renderDetailTable(entries, checked));
     }
   }
 
@@ -126,74 +189,6 @@ function renderUserList(mainPanel) {
 }
 
 // ---------------------------------------------------------------------------
-// Vista Calendario: tabella piatta di tutti i task (di tutti gli utenti) con colonna
-// "Utente" in più, stessa infrastruttura del calendario di Vista Foglie (render_calendar.js)
-// ---------------------------------------------------------------------------
-
-const FLAT_COLUMN_WIDTHS = [10, 10, 20, 8, 8, 10, 10, 10, 7, 7];
-
-function flatEntries() {
-  const rows = [];
-  state.workloadUsers.forEach((user) => {
-    allEntriesOf(user).forEach((entry) => rows.push({ ...entry, username: user.username }));
-  });
-  return rows;
-}
-
-function renderFlatTable(mainPanel) {
-  const rows = flatEntries();
-
-  const table = document.createElement("table");
-  table.className = "leaves-table workload-flat-table";
-
-  const colgroup = document.createElement("colgroup");
-  FLAT_COLUMN_WIDTHS.forEach((width) => {
-    const col = document.createElement("col");
-    col.style.width = `${width}%`;
-    colgroup.appendChild(col);
-  });
-  table.appendChild(colgroup);
-
-  const thead = document.createElement("thead");
-  const headRow = document.createElement("tr");
-  ["Utente", "Progetto", "Titolo", "Avanzamento", "Carico di lavoro", "Status", "Committente", "Esecutore", "Data esecuzione", "Deadline"]
-    .forEach((label) => {
-      const th = document.createElement("th");
-      th.textContent = label;
-      headRow.appendChild(th);
-    });
-  thead.appendChild(headRow);
-  table.appendChild(thead);
-
-  const tbody = document.createElement("tbody");
-  rows.forEach((entry) => {
-    const tr = document.createElement("tr");
-    const cells = [
-      entry.username,
-      entry.project_code || "—",
-      entry.title,
-      fmtPercent(entry.avanzamento),
-      fmtPercent(entry.carico_lavoro),
-      statusText(entry.status),
-      entry.committente_username || "—",
-      entry.executor_username || "—",
-      entry.execution_date || "—",
-      entry.deadline || "—",
-    ];
-    cells.forEach((c) => {
-      const td = document.createElement("td");
-      td.textContent = c;
-      tr.appendChild(td);
-    });
-    tbody.appendChild(tr);
-  });
-  table.appendChild(tbody);
-
-  mainPanel.appendChild(table);
-  return rows;
-}
-
-// ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
 
@@ -201,33 +196,27 @@ function renderToolbar(mainPanel) {
   const bar = document.createElement("div");
   bar.className = "leaf-filter-bar";
 
-  const calBtn = document.createElement("button");
-  calBtn.className = "filter-group-btn";
-  calBtn.classList.toggle("active", state.workloadCalendarOpen);
-  calBtn.textContent = "📅 Calendario";
-  calBtn.onclick = () => {
-    state.workloadCalendarOpen = !state.workloadCalendarOpen;
-    rerender();
-  };
-  bar.appendChild(calBtn);
+  // granularità dei grafici storici (render_workload_chart.js), condivisa da tutti gli
+  // utenti espansi
+  const granGroup = document.createElement("div");
+  granGroup.className = "workload-chart-toolbar";
+  GRANULARITIES.forEach(({ key, label }) => {
+    const btn = document.createElement("button");
+    btn.className = "filter-group-btn";
+    btn.classList.toggle("active", state.workloadGranularity === key);
+    btn.textContent = label;
+    btn.onclick = () => {
+      state.workloadGranularity = key;
+      rerender();
+    };
+    granGroup.appendChild(btn);
+  });
+  bar.appendChild(granGroup);
 
   mainPanel.appendChild(bar);
 }
 
 export function renderWorkload(mainPanel) {
   renderToolbar(mainPanel);
-
-  if (state.workloadCalendarOpen) {
-    const rows = renderFlatTable(mainPanel);
-    renderCalendarOverlay(mainPanel, rows, {
-      minCol: 2, defaultCol: 5, maxCol: 7,
-      hidePianificazione: true, hideDateSort: true,
-      afterCommit: async () => {
-        state.workloadUsers = await fetchWorkload();
-        rerender();
-      },
-    });
-  } else {
-    renderUserList(mainPanel);
-  }
+  renderUserList(mainPanel);
 }
