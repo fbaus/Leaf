@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 
 from flask import Flask, jsonify, request, render_template, send_file, session
 from werkzeug.security import check_password_hash
@@ -36,11 +36,10 @@ DELEGATION_NOTICE_ACCETTATA = "accettata"
 # Vista "Carico di lavoro" (Fase 5): parametro medio unico per tutti gli utenti — non ancora
 # personalizzabile per esecutore, vedi CLAUDE.md/discussione di progetto per i piani futuri.
 CAPACITA_PRODUTTIVA_MEDIA = 0.6
-FINE_GIORNATA_LAVORATIVA = time(17, 30)
-# pavimento minimo per il tempo disponibile (in giorni): senza di questo, chiedere il carico
-# di lavoro dopo le 17:30 di un task già in ritardo (Deadline = oggi) produrrebbe una
-# divisione per zero o per un numero negativo — 1 ora è un compromesso che tiene il numero
-# finito e comunque molto alto, senza dover gestire un caso speciale "non calcolabile"
+# pavimento minimo per il tempo disponibile (in giorni lavorativi equivalenti): senza di
+# questo, EX == DL in un giorno di weekend produrrebbe 0 giorni lavorativi disponibili e
+# quindi una divisione per zero — 1 ora è un compromesso che tiene il numero finito e
+# comunque molto alto, senza dover gestire un caso speciale "non calcolabile"
 TEMPO_DISPONIBILE_MINIMO_GIORNI = 1 / 24
 
 # expired non può essere una colonna GENERATED in SQLite perché date('now')
@@ -547,28 +546,39 @@ def compute_avanzamento(execution_date, deadline):
     return round(min(max(frac, 0.0), 1.0) * 100, 1)
 
 
-def compute_carico_lavoro(execution_date, estimated_days, deadline):
-    """Percentuale di carico di lavoro *odierno* di un task: quanto del tempo restante da
-    adesso alle 17:30 del giorno di deadline (corretto per la capacità produttiva media)
-    verrebbe assorbito dal tempo stimato residuo. None se manca il tempo stimato o la data
-    di esecuzione (mostrato '—' — disincentiva le stime mancanti). Se oggi è già oltre la
-    deadline, la deadline si considera "oggi alle 17:30" (il carico sale molto ma resta un
-    numero finito, grazie al pavimento TEMPO_DISPONIBILE_MINIMO_GIORNI)."""
+def count_business_days(start_date, end_date):
+    """Numero di giorni lavorativi (lun-ven) nell'intervallo [start_date, end_date], inclusi
+    entrambi gli estremi. 0 se end_date precede start_date."""
+    if end_date < start_date:
+        return 0
+    total_days = (end_date - start_date).days + 1
+    full_weeks, remainder = divmod(total_days, 7)
+    business_days = full_weeks * 5
+    for i in range(remainder):
+        if (start_date + timedelta(days=full_weeks * 7 + i)).weekday() < 5:
+            business_days += 1
+    return business_days
+
+
+def compute_carico_lavoro(execution_date, estimated_days, deadline, today=None):
+    """Percentuale di carico di lavoro di un task, spalmato in modo costante su tutta la
+    finestra EX→DL (giorni lavorativi, weekend esclusi dal tempo disponibile): tempo stimato
+    diviso giorni lavorativi disponibili corretti per la capacità produttiva media. Non cresce
+    approssimandosi alla deadline — è la stessa formula usata per il grafico storico del
+    carico, non più legata a "quanto manca da adesso" ma solo alla durata pianificata. 0.0 se
+    il task non è ancora iniziato (oggi < EX). None se manca tempo stimato, data di esecuzione
+    o deadline (mostrato '—' — disincentiva le stime mancanti)."""
     if estimated_days is None or not execution_date or not deadline:
         return None
-    now = datetime.now()
-    today = now.date()
+    if today is None:
+        today = date.today()
     ex = date.fromisoformat(execution_date)
     if today < ex:
         return 0.0
     dl = date.fromisoformat(deadline)
-    if today > dl:
-        dl = today
-    fine_oggi = datetime.combine(today, FINE_GIORNATA_LAVORATIVA)
-    frazione_oggi = max((fine_oggi - now).total_seconds() / 86400, 0.0)
-    giorni_interi = (dl - today).days
+    giorni_disponibili = count_business_days(ex, dl)
     tempo_disponibile = max(
-        (giorni_interi + frazione_oggi) * CAPACITA_PRODUTTIVA_MEDIA,
+        giorni_disponibili * CAPACITA_PRODUTTIVA_MEDIA,
         TEMPO_DISPONIBILE_MINIMO_GIORNI,
     )
     return round(estimated_days / tempo_disponibile * 100, 1)
