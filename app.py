@@ -1828,23 +1828,18 @@ def convert_all_checklist_items(task_id):
             execution_date = item["execution_date"]
             deadline = item["deadline"]
 
-            # una foglia appena nata dalla checklist ha sempre le sue date: se mancano si
-            # parte da oggi, e la deadline (se assente) segue di una settimana la data di
-            # esecuzione così risolta — mai calcolata da "oggi" per conto suo, altrimenti
-            # una deadline già impostata nel passato (item con solo la DL, niente EX)
-            # romperebbe comunque il vincolo DL >= EX una volta autoriempita l'esecuzione
-            # con la data odierna. Vale per ogni riga, completata o no: il nodo padre
-            # eredita il rollup da tutti i nuovi figli, non solo da quelli ancora aperti.
-            if execution_date is None:
-                execution_date = date.today().isoformat()
-            if deadline is None:
+            # a differenza di prima, qui NON si riempie più nulla con "oggi": se l'utente
+            # non ha specificato nessuna delle due date sulla riga della checklist, la
+            # foglia risultante le eredita entrambe vuote e ricade naturalmente in IN LISTA
+            # (compute_open_status) — è la stessa identica logica già usata dalla finestra
+            # di configurazione per non forzare mai una data non specificata dall'utente.
+            # Se è specificata solo una delle due, l'altra si ricava a ±7 giorni da quella
+            # (mai calcolata a partire da "oggi"): stessa finestra di una settimana usata
+            # anche altrove nell'app per questo tipo di scarto EX/DL.
+            if execution_date is not None and deadline is None:
                 deadline = (date.fromisoformat(execution_date) + timedelta(days=7)).isoformat()
-            elif deadline < execution_date:
-                # la deadline esisteva già (magari nel passato) e l'esecuzione è stata
-                # appena riempita con oggi: si allinea l'esecuzione alla deadline già
-                # impostata (mai il contrario, per non alterare una scadenza scelta
-                # dall'utente) — ora lecito, dato che il vincolo è DL >= EX
-                execution_date = deadline
+            elif deadline is not None and execution_date is None:
+                execution_date = (date.fromisoformat(deadline) - timedelta(days=7)).isoformat()
 
             fields = {}
             if item["completed"]:
