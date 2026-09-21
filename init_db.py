@@ -44,13 +44,20 @@ CREATE TABLE tasks (
   executor_user_id    INTEGER REFERENCES users(id),
   delegation_status TEXT CHECK (delegation_status IS NULL OR delegation_status IN ('in_attesa','accettata')),
   delegation_notice TEXT CHECK (delegation_notice IS NULL OR delegation_notice IN ('posticipata','anticipata','accettata')),
+  -- foglia delegata chiusa come COMPLETATO in attesa di conferma del committente (fase di
+  -- "accettazione del completamento", analoga a delegation_status='in_attesa' per la delega
+  -- stessa): delegation_status resta 'accettata' per tutta questa fase, è questo flag a
+  -- marcare l'attesa, non un nuovo valore del suo enum (vedi CHECK sotto e gotcha CHECK
+  -- incrociati in CLAUDE.md)
+  completion_pending INTEGER NOT NULL DEFAULT 0 CHECK (completion_pending IN (0,1)),
   created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   -- colonne, non CHECK, devono precedere questi vincoli a livello di tabella (grammatica SQLite)
   CHECK (
     (committente_user_id IS NULL AND executor_user_id IS NULL AND delegation_status IS NULL)
     OR (committente_user_id IS NOT NULL AND executor_user_id IS NOT NULL AND delegation_status IS NOT NULL)
   ),
-  CHECK (delegation_notice IS NULL OR committente_user_id IS NOT NULL)
+  CHECK (delegation_notice IS NULL OR committente_user_id IS NOT NULL),
+  CHECK (completion_pending = 0 OR executor_user_id IS NOT NULL)
 );
 
 CREATE INDEX idx_tasks_parent_id ON tasks(parent_id);

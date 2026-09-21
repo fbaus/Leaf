@@ -188,11 +188,13 @@ function renderTable(mainPanel, tasksById) {
       titleRow.appendChild(makeBadge("⚠️", "Deadline entro 7 giorni", "#f9a825", "deadline-warning-badge"));
     }
 
-    if (node.executor_user_id != null) {
-      const stato = node.delegation_status === "accettata" ? "accettata" : "in attesa";
-      const tooltip = isOwner
-        ? `Delegato da: ${node.committente_username} (${stato})`
-        : `Delegato a: ${node.executor_username} (${stato})`;
+    // 🤝 è mirato alle due fasi di attesa-decisione (accettazione della delega, conferma del
+    // completamento), non un indicatore permanente "questo task è delegato" — vedi la stessa
+    // condizione in render_tree.js
+    if (node.executor_user_id != null && (node.delegation_status === "in_attesa" || node.completion_pending)) {
+      const tooltip = node.completion_pending
+        ? (isOwner ? "Completamento in attesa di conferma del committente" : "Completamento da confermare")
+        : (isOwner ? `Delegato da: ${node.committente_username} (in attesa)` : `Delegato a: ${node.executor_username} (in attesa)`);
       titleRow.appendChild(makeBadge("🤝", tooltip, null, "delegation-badge"));
     }
 

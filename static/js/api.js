@@ -154,6 +154,14 @@ export function ackDelegationNotice(id) {
   return postJson(`/tasks/${id}/ack-delegation-notice`, "POST", {});
 }
 
+export function confirmCompletion(id) {
+  return postJson(`/tasks/${id}/confirm-completion`, "POST", {});
+}
+
+export function rejectCompletion(id) {
+  return postJson(`/tasks/${id}/reject-completion`, "POST", {});
+}
+
 export function ackEscalation(id) {
   return postJson(`/tasks/${id}/ack-escalation`, "POST", {});
 }

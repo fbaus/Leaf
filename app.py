@@ -307,6 +307,11 @@ def current_user_can_set_project_code():
     return bool(user and user["can_set_project_code"])
 
 
+def current_user_is_superuser():
+    user = query_one("SELECT is_superuser FROM users WHERE id = ?", [current_user_id()])
+    return bool(user and user["is_superuser"])
+
+
 def find_project_code_owner_username(project_code, exclude_task_id=None):
     """Unica query che attraversa deliberatamente i confini di owner_id: la segnalazione
     "codice già usato da [utente]" richiede di vedere chi, fra TUTTI gli utenti, ha già
@@ -1102,6 +1107,38 @@ def get_tasks():
             parent["notice_descendant"] = True
             pid = parent["parent_id"]
 
+    # stessa propagazione verso l'alto per le due fasi di attesa-decisione (delega da
+    # accettare, completamento da confermare): a differenza di notice_descendant sopra non
+    # serve filtrare per committente_user_id, perché tasks_by_id è già la sola porzione di
+    # albero visibile al viewer corrente (owner o committente) — la stessa logica copre
+    # quindi "sia lato committente che lato esecutore" senza bisogno di due varianti. Lato
+    # esecutore in pratica non risale mai: il nodo delegato non ha un genitore visibile nel
+    # suo result set (resta un "figlio orfano" trattato come radice), quindi il while sotto
+    # trova subito parent is None e non propaga nulla, correttamente
+    for t in tasks:
+        t["delegation_pending_descendant"] = False
+        t["completion_pending_descendant"] = False
+    for t in tasks:
+        if t["delegation_status"] != DELEGATION_IN_ATTESA:
+            continue
+        pid = t["parent_id"]
+        while pid is not None:
+            parent = tasks_by_id.get(pid)
+            if parent is None or parent["delegation_pending_descendant"]:
+                break
+            parent["delegation_pending_descendant"] = True
+            pid = parent["parent_id"]
+    for t in tasks:
+        if not t["completion_pending"]:
+            continue
+        pid = t["parent_id"]
+        while pid is not None:
+            parent = tasks_by_id.get(pid)
+            if parent is None or parent["completion_pending_descendant"]:
+                break
+            parent["completion_pending_descendant"] = True
+            pid = parent["parent_id"]
+
     return jsonify(tasks)
 
 
@@ -1225,6 +1262,25 @@ def update_task(task_id):
     if not fields and dependency_ids is None:
         return {"error": "Nessun campo da aggiornare"}, 400
 
+    # un task delegato completato E già confermato dal committente (completion_pending
+    # tornato a 0 dopo /confirm-completion, non semplicemente mai stato delegato) non è più
+    # modificabile nemmeno dall'esecutore: resta libero solo lo stato aperto/chiuso, per
+    # poterlo comunque riaprire se davvero necessario. I campi possono essere reinviati
+    # invariati (il modale rimanda sempre l'intero form): si blocca solo un cambio vero
+    locked_complete = (
+        task["executor_user_id"] is not None
+        and task["label"] == "CHIUSO"
+        and task["status"] == STATUS_COMPLETATO
+        and not task["completion_pending"]
+    )
+    if locked_complete:
+        changed_other_fields = any(key not in ("label", "status") and fields[key] != task[key] for key in fields)
+        changed_dependencies = dependency_ids is not None and set(dependency_ids) != set(get_dependency_ids(task_id))
+        if changed_other_fields or changed_dependencies:
+            return {
+                "error": "Un task completato e con completamento confermato non è più modificabile: resta libero solo lo stato aperto/chiuso"
+            }, 409
+
     label = fields.get("label", task["label"])
     if (fields.get("label") is not None or fields.get("status") is not None) and task["children_count"] > 0:
         return {"error": "Un nodo con figli non può avere status/label"}, 409
@@ -1266,6 +1322,7 @@ def update_task(task_id):
                 }, 409
             execution_date = enforce_open_task_rules(fields, execution_date, deadline, assegnato, final_dependency_ids)
             fields["status"] = None
+            fields["completion_pending"] = 0
         else:
             final_status = fields.get("status", task["status"])
             if final_status not in CLOSED_STATUSES:
@@ -1274,6 +1331,14 @@ def update_task(task_id):
             if dependency_ids:
                 return {"error": "Un task chiuso non può avere dipendenze"}, 409
             final_dependency_ids = []
+            # l'esecutore che chiude una propria foglia delegata come COMPLETATO non la
+            # chiude davvero: apre la fase di accettazione del completamento (analoga a
+            # quella della delega), il committente deve confermare o rifiutare — vedi
+            # /confirm-completion e /reject-completion. QUARANTENA/INTERROTTO restano
+            # chiusure istantanee come oggi, così come qualunque chiusura non delegata
+            fields["completion_pending"] = 1 if (
+                task["executor_user_id"] is not None and final_status == STATUS_COMPLETATO
+            ) else 0
 
         if dependency_ids is not None:
             validate_dependencies(task_id, dependency_ids)
@@ -1418,8 +1483,16 @@ def move_task(task_id):
 @app.route("/tasks/<int:task_id>", methods=["DELETE"])
 def delete_task(task_id):
     task = get_task(task_id)
-    if task is not None and task["owner_id"] != current_user_id():
-        return {"error": "Task non trovato"}, 404
+    if task is not None:
+        if task["executor_user_id"] is not None:
+            # un task delegato (in attesa o già accettato) non è mai eliminabile dal suo
+            # esecutore, che pure ne è owner: solo un superuser può farlo (e può farlo anche
+            # se non ne è lui stesso owner/esecutore — bypassa quindi il controllo di
+            # ownership standard qui sotto, che altrimenti lo bloccherebbe)
+            if not current_user_is_superuser():
+                return {"error": "Solo un utente superuser può eliminare un task delegato"}, 403
+        elif task["owner_id"] != current_user_id():
+            return {"error": "Task non trovato"}, 404
     parent_id = task["parent_id"] if task is not None else None
 
     # ON DELETE CASCADE elimina automaticamente sotto-albero, note e dipendenze collegate
@@ -1579,6 +1652,33 @@ def ack_delegation_notice(task_id):
     if task is None or task["committente_user_id"] != current_user_id():
         return {"error": "Task non trovato"}, 404
     execute_db("UPDATE tasks SET delegation_notice = NULL WHERE id = ?", (task_id,))
+    return {"status": "ok"}
+
+
+@app.route("/tasks/<int:task_id>/confirm-completion", methods=["POST"])
+def confirm_completion(task_id):
+    """Il committente conferma che il completamento segnato dall'esecutore è conforme:
+    il task resta chiuso/COMPLETATO com'era, si spegne solo l'attesa di conferma."""
+    task = get_task(task_id)
+    if task is None or task["committente_user_id"] != current_user_id() or not task["completion_pending"]:
+        return {"error": "Task non trovato"}, 404
+    execute_db("UPDATE tasks SET completion_pending = 0 WHERE id = ?", (task_id,))
+    return {"status": "ok"}
+
+
+@app.route("/tasks/<int:task_id>/reject-completion", methods=["POST"])
+def reject_completion(task_id):
+    """Il committente rifiuta il completamento segnato dall'esecutore: il task torna
+    APERTO (stesso percorso generico di qualunque riapertura), di nuovo attivo per
+    l'esecutore — nessuna dipendenza pregressa viene ripristinata, stesso limite accettato
+    di ogni riapertura di un task chiuso."""
+    task = get_task(task_id)
+    if task is None or task["committente_user_id"] != current_user_id() or not task["completion_pending"]:
+        return {"error": "Task non trovato"}, 404
+    execute_db(
+        "UPDATE tasks SET label = 'APERTO', status = NULL, completion_pending = 0 WHERE id = ?",
+        (task_id,),
+    )
     return {"status": "ok"}
 
 

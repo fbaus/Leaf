@@ -186,7 +186,10 @@ function nodeContextMenuItems(node, hasChildren, isOwner) {
     onClick: () => openEditModal(node),
   });
 
-  if (isOwner) {
+  // un task delegato non è mai eliminabile dal suo esecutore (che pure ne è owner), solo
+  // da un superuser — stesso divieto imposto lato server in delete_task
+  const canDelete = isOwner && (node.executor_user_id == null || state.currentUser?.is_superuser);
+  if (canDelete) {
     items.push({
       label: "Elimina",
       onClick: async () => {
@@ -305,11 +308,23 @@ function renderNode(node, searchText, tasksById) {
   // solo la presenza, in profondità, di una foglia scaduta senza dover espandere il ramo
   else if (node.expired_descendant) row.appendChild(makeBadge("⏰", "Contiene una sotto-attività con deadline superata"));
 
-  if (node.executor_user_id != null) {
-    const stato = node.delegation_status === "accettata" ? "accettata" : "in attesa";
-    const tooltip = isOwner
-      ? `Delegato da: ${node.committente_username} (${stato})`
-      : `Delegato a: ${node.executor_username} (${stato})`;
+  // 🤝 è mirato alle due fasi di attesa-decisione (accettazione della delega, conferma del
+  // completamento), non un indicatore permanente "questo task è delegato": durante il
+  // normale lavoro già accettato (delegation_status === 'accettata' e nessun completamento
+  // in attesa) non compare. Non è temporaneo (a differenza di escalation/delegation_notice):
+  // resta acceso finché non arriva davvero una decisione (accetta/rifiuta,
+  // conferma/rifiuta completamento), mai spento dalla sola apertura della configurazione
+  if (node.executor_user_id != null && (node.delegation_status === "in_attesa" || node.completion_pending)) {
+    const tooltip = node.completion_pending
+      ? (isOwner ? "Completamento in attesa di conferma del committente" : "Completamento da confermare")
+      : (isOwner ? `Delegato da: ${node.committente_username} (in attesa)` : `Delegato a: ${node.executor_username} (in attesa)`);
+    row.appendChild(makeBadge("🤝", tooltip, null, "delegation-badge"));
+  } else if (node.delegation_pending_descendant || node.completion_pending_descendant) {
+    // stessa idea di expired_descendant: un ramo collassato deve comunque segnalare che, in
+    // profondità, una delega/un completamento aspetta una decisione, senza doverlo espandere
+    const tooltip = node.completion_pending_descendant
+      ? "Contiene un completamento in attesa di conferma"
+      : "Contiene una delega in attesa di accettazione";
     row.appendChild(makeBadge("🤝", tooltip, null, "delegation-badge"));
   }
 

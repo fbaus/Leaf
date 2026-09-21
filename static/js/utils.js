@@ -139,8 +139,9 @@ export function delegationCellText(node, currentUserId) {
   if (node.assegnato) return node.assegnato;
   if (node.executor_user_id == null) return null;
   const stato = node.delegation_status === "accettata" ? "accettata" : "in attesa";
-  if (node.executor_user_id === currentUserId) return `Da: ${node.committente_username} (${stato})`;
-  if (node.committente_user_id === currentUserId) return `A: ${node.executor_username} (${stato})`;
+  const suffix = node.completion_pending ? " — completamento da confermare" : "";
+  if (node.executor_user_id === currentUserId) return `Da: ${node.committente_username} (${stato})${suffix}`;
+  if (node.committente_user_id === currentUserId) return `A: ${node.executor_username} (${stato})${suffix}`;
   return null;
 }
 

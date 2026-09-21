@@ -1,6 +1,7 @@
 import {
   createTask, updateTask, setFocus, recomputeRollup,
   fetchUsers, delegateTask, acceptDelegation, declineDelegation, ackDelegationNotice, ackEscalation,
+  confirmCompletion, rejectCompletion,
 } from "./api.js";
 import { STATUS_META, CLOSED_STATUSES, isLeaf, buildTree } from "./utils.js";
 import { state, reload } from "./state.js";
@@ -29,6 +30,9 @@ const fieldCaricoLavoroBranch = document.getElementById("field-carico-lavoro-bra
 // lavoro — non c'entra con CAPACITA_PRODUTTIVA_MEDIA (quella è quanto di una giornata è
 // davvero disponibile in media, questa è solo l'unità di misura dell'input)
 const ORE_PER_GIORNO = 8;
+// deve combaciare con STATUS_META[9]/STATUS_COMPLETATO in app.py: nessuna delle due parti
+// espone questo valore come costante condivisa, va tenuto sincronizzato a mano
+const STATUS_COMPLETATO = 9;
 const fieldProjectCodeRow = document.getElementById("field-project-code-row");
 const fieldProjectCodeEditableWrapper = document.getElementById("field-project-code-editable-wrapper");
 const fieldProjectCodeReadonlyWrapper = document.getElementById("field-project-code-readonly-wrapper");
@@ -53,6 +57,9 @@ const acceptDelegationBtn = document.getElementById("accept-delegation-btn");
 const declineDelegationBtn = document.getElementById("decline-delegation-btn");
 const fieldAssegnazioneCommittenteWrapper = document.getElementById("field-assegnazione-committente-wrapper");
 const fieldAssegnazioneCommittenteInfo = document.getElementById("field-assegnazione-committente-info");
+const completamentoConfermaWrapper = document.getElementById("field-completamento-conferma");
+const confirmCompletionBtn = document.getElementById("confirm-completion-btn");
+const rejectCompletionBtn = document.getElementById("reject-completion-btn");
 const dependenciesSummary = document.getElementById("dependencies-summary");
 const dependenciesPickerBtn = document.getElementById("dependencies-picker-btn");
 const fieldFocusWrapper = document.getElementById("field-focus-wrapper");
@@ -267,6 +274,7 @@ function applyAssegnazioneCreateMode() {
   delegaBtn.classList.add("hidden");
   fieldAssegnazioneExecutorWrapper.classList.add("hidden");
   fieldAssegnazioneCommittenteWrapper.classList.add("hidden");
+  completamentoConfermaWrapper.classList.add("hidden");
 }
 
 // nodo esistente: 3 stati mutuamente esclusivi in base a chi guarda e se è già delegato
@@ -275,6 +283,7 @@ function applyAssegnazioneSection(node, isOwner) {
   fieldAssegnazioneEditableWrapper.classList.add("hidden");
   fieldAssegnazioneExecutorWrapper.classList.add("hidden");
   fieldAssegnazioneCommittenteWrapper.classList.add("hidden");
+  completamentoConfermaWrapper.classList.add("hidden");
 
   const delegatedInternally = node.executor_user_id != null;
   // per il committente il nodo resta "quella foglia delegata" anche se l'esecutore l'ha
@@ -282,18 +291,24 @@ function applyAssegnazioneSection(node, isOwner) {
   // visibili — vedi isLeafForViewer): solo per lui la sezione resta valida anche su un ramo
   if (!isLeaf(node) && !(!isOwner && delegatedInternally)) return; // ramo vero, mai delegato
   const stato = node.delegation_status === "accettata" ? "accettata" : "in attesa";
+  // il completamento in attesa non è un nuovo valore di delegation_status (resta 'accettata'
+  // per tutta questa fase, vedi completion_pending in app.py): il suffisso è solo testuale
+  const completamentoSuffix = node.completion_pending ? " — in attesa di conferma del completamento" : "";
 
   if (!isOwner) {
     fieldAssegnazioneCommittenteWrapper.classList.remove("hidden");
     fieldAssegnazioneCommittenteInfo.textContent = delegatedInternally
-      ? `Delegato a: ${node.executor_username} (${stato})`
+      ? `Delegato a: ${node.executor_username} (${stato})${completamentoSuffix}`
       : "—";
+    if (delegatedInternally && node.completion_pending) {
+      completamentoConfermaWrapper.classList.remove("hidden");
+    }
     return;
   }
 
   if (delegatedInternally) {
     fieldAssegnazioneExecutorWrapper.classList.remove("hidden");
-    fieldAssegnazioneExecutorInfo.textContent = `Delegato da: ${node.committente_username} (${stato})`;
+    fieldAssegnazioneExecutorInfo.textContent = `Delegato da: ${node.committente_username} (${stato})${completamentoSuffix}`;
     // in attesa: Accetta + Rifiuta. Già accettata: solo un bottone per restituire il task,
     // rietichettato — stessa azione di backend (decline-delegation), significato diverso
     const pending = node.delegation_status !== "accettata";
@@ -345,6 +360,28 @@ declineDelegationBtn.addEventListener("click", async () => {
   if (editingId === null) return;
   try {
     await declineDelegation(editingId);
+    closeModal();
+    afterSaveCallback();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+confirmCompletionBtn.addEventListener("click", async () => {
+  if (editingId === null) return;
+  try {
+    await confirmCompletion(editingId);
+    closeModal();
+    afterSaveCallback();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+rejectCompletionBtn.addEventListener("click", async () => {
+  if (editingId === null) return;
+  try {
+    await rejectCompletion(editingId);
     closeModal();
     afterSaveCallback();
   } catch (err) {
@@ -525,6 +562,7 @@ export function openCreateModal(parentId) {
   // ancora un carico di lavoro calcolato, non semplicemente "assente" come "—" implicherebbe
   fieldCaricoLavoro.textContent = "(calcolato al salvataggio)";
   updateProjectCodeVisibility(null, parentId === null);
+  applyCompletionLock(false); // un nodo nuovo non può essere in questo stato
   checklistWrapper.classList.add("hidden"); // serve un nodo già esistente
   fieldFocusWrapper.classList.add("hidden"); // idem: il focus si attiva solo su un nodo esistente
 
@@ -609,6 +647,19 @@ function applyNodeTypeFields(node) {
   fieldFocus.disabled = !leaf || node.label === "CHIUSO";
 }
 
+// un task delegato completato E già confermato dal committente non è più modificabile
+// nemmeno dall'esecutore (stesso divieto imposto lato server in update_task): resta
+// editabile solo "Stato del task"/Status, per poterlo comunque riaprire. Disabilita i
+// singoli controlli invece di tutto il <fieldset> (come si fa per il committente) perché
+// qui, a differenza sua, un paio di campi devono restare attivi — e un <fieldset disabled>
+// non è selettivamente riabilitabile su un suo discendente
+function applyCompletionLock(locked) {
+  nodeFieldset.querySelectorAll("input, textarea, select, button").forEach((el) => {
+    if (el.id === "field-label" || el.id === "field-status") return;
+    el.disabled = locked;
+  });
+}
+
 // la checklist esiste solo sulle foglie: se una trasformazione in-modale fa
 // diventare il nodo un ramo, la sezione va nascosta senza dover richiudere il modale
 function updateChecklistVisibility(node, isOwner = true) {
@@ -686,7 +737,14 @@ export async function openEditModal(node) {
 
   applyNodeTypeFields(fresh);
   applyAssegnazioneSection(fresh, isOwner);
-  updateChecklistVisibility(fresh, isOwner);
+
+  const isCompletionLocked = isOwner
+    && fresh.executor_user_id != null
+    && fresh.label === "CHIUSO"
+    && fresh.status === STATUS_COMPLETATO
+    && !fresh.completion_pending;
+  applyCompletionLock(isCompletionLocked);
+  updateChecklistVisibility(fresh, isOwner && !isCompletionLocked);
 
   nodeFieldset.disabled = !isOwner;
   modalSubmit.classList.toggle("hidden", !isOwner);
