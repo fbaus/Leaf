@@ -4,6 +4,21 @@
   <meta charset="UTF-8">
   <title>Leaf</title>
   <link rel="stylesheet" href="/static/css/style.css">
+  <!-- applicato subito, prima che il resto della pagina si disegni: uno script type="module"
+       in fondo al body (vedi main.js) viene eseguito solo a parsing completo, e nel
+       frattempo si vedrebbe un lampo col tema chiaro anche se l'utente ha scelto lo scuro -->
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem("leaf-theme");
+        if (theme === "light" || theme === "dark") {
+          document.documentElement.dataset.theme = theme;
+        }
+      } catch (e) {
+        /* localStorage non disponibile (es. cookie di terze parti bloccati): resta il tema automatico */
+      }
+    })();
+  </script>
 </head>
 <body data-view="albero">
 
@@ -16,6 +31,7 @@
     </nav>
     <div id="user-info" class="hidden">
       <span id="current-username"></span>
+      <button id="settings-btn" type="button" title="Impostazioni">⚙️</button>
       <button id="logout-btn" type="button">Esci</button>
     </div>
   </header>
@@ -30,6 +46,27 @@
     <div id="main-panel"></div>
     <div id="panel-resize-handle" class="tree-only"></div>
     <div id="side-panel"></div>
+  </div>
+
+  <div id="settings-overlay" class="hidden">
+    <div id="settings-box">
+      <h2>Impostazioni</h2>
+      <fieldset>
+        <legend>Tema</legend>
+        <label class="checkbox-label">
+          <input type="radio" name="theme" value="auto"> Automatico (segue il sistema)
+        </label>
+        <label class="checkbox-label">
+          <input type="radio" name="theme" value="light"> Chiaro
+        </label>
+        <label class="checkbox-label">
+          <input type="radio" name="theme" value="dark"> Scuro
+        </label>
+      </fieldset>
+      <div class="modal-actions">
+        <button type="button" id="settings-close">Chiudi</button>
+      </div>
+    </div>
   </div>
 
   <div id="login-overlay" class="hidden">
@@ -123,8 +160,11 @@
           </label>
         </div>
         <div class="field-row" id="field-estimated-editable-row">
-          <label>Tempo stimato (giorni)
-            <input id="field-estimated-days" type="number" step="0.1" min="0.1" placeholder="opzionale">
+          <label>Tempo stimato — giorni
+            <input id="field-estimated-days-part" type="number" step="1" min="0" placeholder="0">
+          </label>
+          <label>ore
+            <input id="field-estimated-hours-part" type="number" step="0.5" min="0" max="7.5" placeholder="0">
           </label>
         </div>
         <div class="field-row hidden" id="field-estimated-computed-wrapper">

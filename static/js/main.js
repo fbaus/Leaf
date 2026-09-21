@@ -8,6 +8,7 @@ import { captureFocus, restoreFocus } from "./focus.js";
 import { refreshGanttIfOpen } from "./render_gantt.js";
 import { fetchMe } from "./api.js";
 import { initLogin, showLoginOverlay } from "./login.js";
+import { initSettings } from "./settings.js";
 
 const mainPanel = document.getElementById("main-panel");
 const sidePanel = document.getElementById("side-panel");
@@ -113,6 +114,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   initModal(() => reload());
+  initSettings();
 
   // gate di sessione: se /me risponde 401 (nessuna sessione valida) si mostra il login
   // invece di procedere con reload() — è la primissima chiamata di rete che l'app fa

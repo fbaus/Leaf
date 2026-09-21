@@ -2,6 +2,76 @@
   box-sizing: border-box;
 }
 
+/* Tema (vedi settings.js): i valori qui sono il tema chiaro (default). "Automatico" (nessun
+   data-theme, o esplicitamente "auto") segue prefers-color-scheme del sistema; "dark"/"light"
+   lo forzano indipendentemente dal sistema. Solo il "chrome" (sfondi, bordi, testo generico)
+   è a variabile — i colori di stato/badge/delega restano fissi in entrambi i temi: sono
+   già scelti per essere leggibili sia su sfondo chiaro che scuro, e tenerli invariati evita
+   che un utente impari un colore per uno stato e se lo veda cambiare passando tema */
+:root {
+  --color-bg: #ffffff;
+  --color-bg-panel: #ffffff;
+  --color-bg-alt: #f5f5f5;
+  --color-bg-hover: #f0f0f0;
+  --color-weekend-bg: #eaeaea;
+  --color-text: #1a1a1a;
+  --color-text-muted: #555555;
+  --color-text-faint: #999999;
+  --color-border: #cccccc;
+  --color-border-light: #dddddd;
+  --color-border-lighter: #eeeeee;
+  --color-accent: #1565c0;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #181818;
+    --color-bg-panel: #242424;
+    --color-bg-alt: #2e2e2e;
+    --color-bg-hover: #383838;
+    --color-weekend-bg: #202020;
+    --color-text: #e8e8e8;
+    --color-text-muted: #b0b0b0;
+    --color-text-faint: #8a8a8a;
+    --color-border: #4a4a4a;
+    --color-border-light: #3a3a3a;
+    --color-border-lighter: #333333;
+    /* #1565c0 è tarato per contrasto su bianco: su uno sfondo quasi nero risulta troppo
+       scuro/poco leggibile (segnalato direttamente) — qui una tonalità più chiara e satura */
+    --color-accent: #5b9bf5;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #181818;
+  --color-bg-panel: #242424;
+  --color-bg-alt: #2e2e2e;
+  --color-bg-hover: #383838;
+  --color-weekend-bg: #202020;
+  --color-text: #e8e8e8;
+  --color-text-muted: #b0b0b0;
+  --color-text-faint: #8a8a8a;
+  --color-border: #4a4a4a;
+  --color-border-light: #3a3a3a;
+  --color-border-lighter: #333333;
+  --color-accent: #5b9bf5;
+}
+
+/* dà un suggerimento al browser per i controlli nativi (scrollbar, date/checkbox di
+   sistema): "automatico" li lascia decidere in base al sistema, "chiaro"/"scuro" li forza
+   in coerenza con le variabili sopra, senza dover ridisegnare a mano ogni controllo nativo */
+:root:not([data-theme="light"]):not([data-theme="dark"]) {
+  color-scheme: light dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
 html, body {
   height: 100%;
 }
@@ -10,7 +80,8 @@ body {
   font-family: Arial, sans-serif;
   margin: 0;
   padding: 16px 20px;
-  color: #1a1a1a;
+  background: var(--color-bg);
+  color: var(--color-text);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -24,6 +95,29 @@ h1 {
 button {
   cursor: pointer;
   font: inherit;
+}
+
+/* base per i controlli non ancora coperti da una regola più specifica (es. i pulsanti
+   "Accedi"/"Conferma"/"Annulla"/"Chiudi" nei vari modali, che finora si affidavano allo
+   stile nativo del browser, sempre chiaro): le regole già esistenti con un colore proprio
+   (.filter-group-btn, .view-btn.active, ecc.) restano invariate, vincono per specificità */
+button, input, textarea, select {
+  background: var(--color-bg-panel);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+/* i bottoni senza una classe propria (Salva/Annulla/Chiudi/Accedi/Conferma, ecc.) finora si
+   affidavano allo stile nativo del browser (mai un problema perché anche lo sfondo era
+   nativo, coerente col proprio bordo). Impostare solo il colore del bordo sopra, lasciando
+   lo STILE del bordo nativo (spesso un rilievo/ombreggiatura del sistema operativo) con uno
+   sfondo piatto personalizzato, crea un effetto "falso rilievo" — un bordo shorthand
+   completo (non solo border-color) e appearance:none tolgono la resa nativa, appiattendoli
+   come .view-btn/.filter-group-btn */
+button {
+  appearance: none;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
 }
 
 /* ---------- topbar ---------- */
@@ -43,11 +137,16 @@ button {
 
 .view-btn {
   padding: 6px 12px;
-  border: 1px solid #ccc;
-  background: #f5f5f5;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-alt);
   border-radius: 4px;
 }
 
+/* sfondo blu con testo bianco sopra: un bottone così è leggibile allo stesso modo in
+   entrambi i temi (è "autosufficiente", non dipende dallo sfondo della pagina) — qui resta
+   apposta il blu fisso #1565c0, non var(--color-accent): quella variante più chiara per il
+   tema scuro (leggibile come TESTO su sfondo scuro) avrebbe un contrasto too debole con
+   il testo bianco sopra */
 .view-btn.active {
   background: #1565c0;
   color: white;
@@ -71,7 +170,7 @@ button {
   max-width: 480px;
   margin-bottom: 12px;
   padding: 6px 8px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
   font: inherit;
 }
@@ -132,12 +231,12 @@ body[data-view="albero"] #side-panel {
   bottom: 0;
   left: 50%;
   width: 1px;
-  background: #ccc;
+  background: var(--color-border);
   transform: translateX(-50%);
 }
 
 #panel-resize-handle:hover::after {
-  background: #1565c0;
+  background: var(--color-accent);
   width: 2px;
 }
 
@@ -155,7 +254,7 @@ ul.tree-root, #main-panel ul {
 .tree-children {
   margin-left: 17px; /*prv9 new17*/
   padding-left: 15px;
-  border-left: 2px solid #999;
+  border-left: 2px solid var(--color-border);
 }
 
 li {
@@ -168,6 +267,17 @@ li {
   gap: 6px;
   padding: 2px 4px;
   border-radius: 4px;
+}
+
+/* sfondi pastello pensati per testo scuro sopra, sempre — anche a tema scuro, dove il
+   colore del testo "ambiente" (var(--color-text)) diventerebbe quasi bianco e sparirebbe
+   su questi stessi sfondi chiari: qui il colore va fissato esplicitamente, non a variabile */
+.tree-row.highlight,
+.tree-row.row-escalation,
+.tree-row.row-expired,
+.leaf-title-cell.row-expired,
+.tree-row.row-dep-highlight {
+  color: #1a1a1a;
 }
 
 .tree-row.highlight {
@@ -196,12 +306,13 @@ li {
 }
 
 .tree-row.drop-target {
-  outline: 2px dashed #1565c0;
+  outline: 2px dashed var(--color-accent);
   background: #e3f2fd;
+  color: #1a1a1a;
 }
 
 #main-panel.drop-target-root {
-  outline: 2px dashed #1565c0;
+  outline: 2px dashed var(--color-accent);
 }
 
 .toggle-btn {
@@ -227,8 +338,8 @@ li {
 .context-menu {
   position: fixed;
   z-index: 1000;
-  background: white;
-  border: 1px solid #ccc;
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
   padding: 4px;
@@ -247,7 +358,7 @@ li {
 }
 
 .context-menu button:hover:not(:disabled) {
-  background: #f0f0f0;
+  background: var(--color-bg-hover);
 }
 
 .context-menu button:disabled {
@@ -267,7 +378,7 @@ li {
   background: none;
   font-size: 14px;
   min-width: 16px;
-  color: #555;
+  color: var(--color-text-muted);
   cursor: pointer;
 }
 
@@ -287,13 +398,22 @@ table {
 th, td {
   text-align: left;
   padding: 6px 8px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--color-border-lighter);
   font-size: 14px;
+}
+
+/* header della tabella FOGLIE, fisso in cima a #main-panel durante lo scroll verticale,
+   subito sotto alla barra filtri (anch'essa sticky, vedi .leaf-filter-bar) */
+.leaves-table thead th {
+  position: sticky;
+  top: var(--filter-bar-height, 38px);
+  z-index: 15;
+  background: var(--color-bg-panel);
 }
 
 .leaf-title-cell {
   cursor: pointer;
-  color: #1565c0;
+  color: var(--color-accent);
 }
 
 .leaf-title-cell:hover {
@@ -326,7 +446,7 @@ td.leaf-title-cell:hover {
 
 .leaf-title-text {
   cursor: pointer;
-  color: #1565c0;
+  color: var(--color-accent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -404,12 +524,12 @@ td.leaf-title-cell:hover {
   background: none;
   padding: 0 2px;
   font-size: 12px;
-  color: #999;
+  color: var(--color-text-faint);
   vertical-align: middle;
 }
 
 .sort-btn.active {
-  color: #1565c0;
+  color: var(--color-accent);
   font-weight: bold;
 }
 
@@ -423,16 +543,25 @@ td.leaf-title-cell:hover {
      fascia superiore settimane/mesi/anni (20px, vedi SUPER_HEADER_HEIGHT in
      render_calendar.js) restino sopra la <table> senza finire sotto/sopra questa barra */
   margin-bottom: 26px;
+  /* resta visibile scorrendo #main-panel in verticale (Foglie/Carico di lavoro): la sua
+     altezza reale viene scritta in --filter-bar-height da render_leaves.js, così l'header
+     della tabella (sotto) sa esattamente dove agganciarsi senza sovrapporsi */
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--color-bg-panel);
+  padding-top: 2px;
 }
 
 .filter-group-btn {
   padding: 4px 10px;
-  border: 1px solid #ccc;
-  background: #f5f5f5;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-alt);
   border-radius: 12px;
   font-size: 13px;
 }
 
+/* stesso motivo di .view-btn.active più sopra: blu fisso, non a variabile */
 .filter-group-btn.active {
   background: #1565c0;
   color: white;
@@ -442,7 +571,7 @@ td.leaf-title-cell:hover {
 /* ---------- Carico di lavoro ---------- */
 
 .workload-user {
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--color-border-lighter);
 }
 
 .workload-user-row {
@@ -458,19 +587,19 @@ td.leaf-title-cell:hover {
 }
 
 .workload-user-count {
-  color: #555;
+  color: var(--color-text-muted);
   font-size: 13px;
 }
 
 .workload-user-load {
-  color: #555;
+  color: var(--color-text-muted);
   font-size: 13px;
   margin-left: auto;
 }
 
 .workload-empty {
   padding: 6px 4px 14px 26px;
-  color: #999;
+  color: var(--color-text-faint);
   font-size: 13px;
 }
 
@@ -493,7 +622,7 @@ td.leaf-title-cell:hover {
 
 .workload-chart-toggle-label {
   font-size: 13px;
-  color: #555;
+  color: var(--color-text-muted);
 }
 
 /* grafico storico del carico di un utente (render_workload_chart.js): altezza fissa e
@@ -503,7 +632,7 @@ td.leaf-title-cell:hover {
   height: 25vh;
   margin: 4px 0 14px 26px;
   width: calc(100% - 26px);
-  border: 1px solid #eee;
+  border: 1px solid var(--color-border-lighter);
   border-radius: 6px;
   box-sizing: border-box;
   overflow: hidden;
@@ -519,12 +648,12 @@ td.leaf-title-cell:hover {
   width: 36px;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #eee;
+  border-right: 1px solid var(--color-border-lighter);
 }
 
 .workload-chart-axis-spacer {
   flex-shrink: 0;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 .workload-chart-axis-labels {
@@ -537,7 +666,7 @@ td.leaf-title-cell:hover {
   right: 4px;
   transform: translateY(-50%);
   font-size: 10px;
-  color: #888;
+  color: var(--color-text-faint);
 }
 
 .workload-chart-scroll {
@@ -565,7 +694,7 @@ td.leaf-title-cell:hover {
 .workload-chart-header {
   flex-shrink: 0;
   display: flex;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--color-border-light);
   white-space: nowrap;
 }
 
@@ -579,7 +708,7 @@ td.leaf-title-cell:hover {
   font-size: 10px;
   line-height: 1.2;
   box-sizing: border-box;
-  border-right: 1px solid #eee;
+  border-right: 1px solid var(--color-border-lighter);
 }
 
 .workload-chart-svg {
@@ -612,7 +741,7 @@ td.leaf-title-cell:hover {
 
 .workload-chart-global-line {
   fill: none;
-  stroke: #333;
+  stroke: var(--color-text);
   stroke-width: 2.5;
 }
 
@@ -622,7 +751,7 @@ td.leaf-title-cell:hover {
 }
 
 .root-checklist {
-  border: 1px solid #eee;
+  border: 1px solid var(--color-border-lighter);
   border-radius: 6px;
   padding: 10px;
 }
@@ -646,8 +775,8 @@ td.leaf-title-cell:hover {
 
 .root-checklist-actions button {
   padding: 3px 8px;
-  border: 1px solid #ccc;
-  background: #f5f5f5;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-alt);
   border-radius: 4px;
   font-size: 12px;
   cursor: pointer;
@@ -662,8 +791,8 @@ td.leaf-title-cell:hover {
   z-index: 50;
   display: flex;
   flex-direction: column;
-  background: white;
-  border-left: 1px solid #ccc;
+  background: var(--color-bg-panel);
+  border-left: 1px solid var(--color-border);
   box-shadow: -2px 0 8px rgba(0, 0, 0, 0.15);
 }
 
@@ -677,22 +806,54 @@ td.leaf-title-cell:hover {
   z-index: 3;
 }
 
+/* la toolbar e la fascia di intestazione (vedi .calendar-header-scroll) restano agganciate
+   in cima durante lo scroll verticale di #main-panel: sticky invece di flow normale, come
+   già .leaf-filter-bar/.leaves-table thead th nella vista FOGLIE. z-index positivo ma sotto
+   a .calendar-resize-handle (3), altrimenti coprirebbe la maniglia nell'angolo in alto a
+   sinistra */
 .calendar-toolbar {
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
   height: 30px;
   box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 0 8px;
-  background: white;
-  border-bottom: 1px solid #ddd;
+  background: var(--color-bg-panel);
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 .calendar-date-sort-group {
   display: flex;
   gap: 6px;
   margin-left: auto;
+}
+
+/* fascia super-header + intestazione giorni/ore: contenitore sticky separato dal corpo
+   (.calendar-scroll) apposta — un elemento sticky non può "sganciarsi" dallo scroll
+   verticale di #main-panel se un suo antenato ha già overflow-x:auto (diventerebbe sticky
+   rispetto a QUELL'antenato, non a #main-panel): per questo la fascia intestazione ha il
+   proprio overflow-x:auto indipendente (sincronizzato via JS con .calendar-scroll), invece
+   di vivere dentro lo stesso scroll orizzontale del corpo */
+.calendar-header-scroll {
+  flex-shrink: 0;
+  position: sticky;
+  z-index: 2;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--color-bg-panel);
+  scrollbar-width: none;
+}
+
+.calendar-header-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.calendar-header-inner {
+  position: relative;
 }
 
 .calendar-scroll {
@@ -711,7 +872,7 @@ td.leaf-title-cell:hover {
 }
 
 .calendar-header-row {
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--color-border-light);
   white-space: nowrap;
 }
 
@@ -729,7 +890,7 @@ td.leaf-title-cell:hover {
 }
 
 .calendar-bucket-header.weekend {
-  background: #e4e4e4;
+  background: var(--color-weekend-bg);
 }
 
 /* cella di gruppo della fascia superiore (settimane/mesi/anni), condivisa fra calendario
@@ -743,9 +904,9 @@ td.leaf-title-cell:hover {
   height: 100%;
   font-size: 11px;
   font-weight: bold;
-  color: #555;
-  background: #f5f5f5;
-  border-right: 1px solid #ddd;
+  color: var(--color-text-muted);
+  background: var(--color-bg-alt);
+  border-right: 1px solid var(--color-border-light);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -755,14 +916,14 @@ td.leaf-title-cell:hover {
 .calendar-weekend-band {
   position: absolute;
   top: 0;
-  background: #eeeeee;
+  background: var(--color-weekend-bg);
   pointer-events: none;
 }
 
 .calendar-grid-line {
   position: absolute;
   top: 0;
-  border-left: 1px solid #ddd;
+  border-left: 1px solid var(--color-border-light);
   pointer-events: none;
 }
 
@@ -771,7 +932,7 @@ td.leaf-title-cell:hover {
 .planning-quarter-line {
   position: absolute;
   top: 0;
-  border-left: 1px solid #eee;
+  border-left: 1px solid var(--color-border-lighter);
   pointer-events: none;
 }
 
@@ -788,7 +949,7 @@ td.leaf-title-cell:hover {
   position: absolute;
   left: 0;
   height: 1px;
-  background: #eee;
+  background: var(--color-border-lighter);
   pointer-events: none;
 }
 
@@ -857,8 +1018,8 @@ td.leaf-title-cell:hover {
   height: 14px;
   overflow-x: auto;
   overflow-y: hidden;
-  background: white;
-  border-top: 1px solid #ddd;
+  background: var(--color-bg-panel);
+  border-top: 1px solid var(--color-border-light);
 }
 
 .calendar-scrollbar-spacer {
@@ -867,6 +1028,7 @@ td.leaf-title-cell:hover {
 
 /* ---------- note ---------- */
 
+/* stesso motivo di .view-btn.active più sopra: blu fisso, non a variabile */
 .add-note-btn {
   display: block;
   margin-bottom: 14px;
@@ -917,13 +1079,13 @@ td.leaf-title-cell:hover {
   box-sizing: border-box;
   padding: 5px 7px;
   margin-bottom: 8px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
   font: inherit;
 }
 
 .note-history-empty {
-  color: #999;
+  color: var(--color-text-faint);
   margin: 0;
 }
 
@@ -950,8 +1112,8 @@ td.leaf-title-cell:hover {
 
 .note-entry-edit-btn,
 .note-entry-expand-btn {
-  border: 1px solid #ccc;
-  background: #f5f5f5;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-alt);
   border-radius: 4px;
   font-size: 12px;
   width: 22px;
@@ -965,7 +1127,7 @@ td.leaf-title-cell:hover {
 .note-entry-box {
   flex: 1;
   min-width: 0;
-  border: 1px solid #eee;
+  border: 1px solid var(--color-border-lighter);
   border-radius: 6px;
   padding: 6px 8px;
   overflow-y: auto;
@@ -976,7 +1138,7 @@ td.leaf-title-cell:hover {
 
 .note-entry-date {
   font-size: 11px;
-  color: #888;
+  color: var(--color-text-faint);
   margin-bottom: 3px;
 }
 
@@ -989,11 +1151,12 @@ td.leaf-title-cell:hover {
 
 .note-search-highlight {
   background: #fff3b0;
+  color: #1a1a1a;
   padding: 0 1px;
 }
 
 .note-link {
-  color: #1565c0;
+  color: var(--color-accent);
   cursor: pointer;
   text-decoration: underline;
 }
@@ -1044,6 +1207,7 @@ td.leaf-title-cell:hover {
 
 .field-warning {
   background: #fffbcc;
+  color: #1a1a1a;
   border-radius: 4px;
   padding: 4px;
   margin: -4px -4px 6px -4px;
@@ -1056,9 +1220,9 @@ td.leaf-title-cell:hover {
 .computed-status {
   padding: 6px;
   margin-top: 4px;
-  border: 1px solid #eee;
+  border: 1px solid var(--color-border-lighter);
   border-radius: 4px;
-  background: #f9f9f9;
+  background: var(--color-bg-alt);
   font-weight: bold;
 }
 
@@ -1070,9 +1234,9 @@ td.leaf-title-cell:hover {
   max-height: 6.5em;
   padding: 6px;
   margin: 4px 0 6px;
-  border: 1px solid #eee;
+  border: 1px solid var(--color-border-lighter);
   border-radius: 4px;
-  background: #f9f9f9;
+  background: var(--color-bg-alt);
   font-size: 13px;
   line-height: 1.5;
   overflow-y: auto;
@@ -1088,9 +1252,9 @@ td.leaf-title-cell:hover {
      "Assegnato", verificato via misurazione diretta dei due testi */
   margin-top: 4px;
   padding: 6px 10px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
-  background: #f5f5f5;
+  background: var(--color-bg-alt);
   font: inherit;
   font-weight: bold;
   line-height: normal;
@@ -1117,7 +1281,7 @@ td.leaf-title-cell:hover {
    titolo/suggerimento in cima e i bottoni Conferma/Annulla in fondo restano sempre
    visibili senza dover scorrere fino in fondo all'albero per raggiungerli */
 #dependency-picker-box {
-  background: white;
+  background: var(--color-bg-panel);
   border-radius: 8px;
   padding: 20px;
   width: 700px;
@@ -1188,7 +1352,7 @@ td.leaf-title-cell:hover {
 
 .picker-branch-label {
   font-weight: bold;
-  color: #333;
+  color: var(--color-text);
 }
 
 .picker-row .branch-toggle-btn {
@@ -1208,7 +1372,7 @@ td.leaf-title-cell:hover {
 }
 
 .confirm-box {
-  background: white;
+  background: var(--color-bg-panel);
   border-radius: 8px;
   padding: 20px;
   width: 340px;
@@ -1223,7 +1387,7 @@ td.leaf-title-cell:hover {
 }
 
 #modal-box {
-  background: white;
+  background: var(--color-bg-panel);
   border-radius: 8px;
   padding: 24px;
   width: 820px;
@@ -1250,11 +1414,60 @@ td.leaf-title-cell:hover {
 }
 
 #login-box {
-  background: white;
+  background: var(--color-bg-panel);
   border-radius: 8px;
   padding: 24px;
   width: 320px;
   max-width: 90vw;
+}
+
+/* ---------- impostazioni ---------- */
+
+#settings-btn {
+  border: none;
+  background: none;
+  font-size: 16px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+#settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1250;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#settings-overlay.hidden {
+  display: none;
+}
+
+#settings-box {
+  background: var(--color-bg-panel);
+  border-radius: 8px;
+  padding: 24px;
+  width: 340px;
+  max-width: 90vw;
+}
+
+#settings-box fieldset {
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+}
+
+#settings-box legend {
+  font-size: 13px;
+  font-weight: bold;
+  padding: 0 4px;
+}
+
+#settings-box .checkbox-label {
+  margin-bottom: 6px !important;
 }
 
 #login-form label {
@@ -1268,7 +1481,7 @@ td.leaf-title-cell:hover {
   width: 100%;
   padding: 6px 8px;
   margin-top: 4px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
   font: inherit;
   box-sizing: border-box;
@@ -1303,7 +1516,7 @@ td.leaf-title-cell:hover {
 #node-form select {
   padding: 6px 8px;
   margin-top: 4px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
   font: inherit;
   box-sizing: border-box;
@@ -1368,9 +1581,9 @@ td.leaf-title-cell:hover {
 #accept-delegation-btn,
 #decline-delegation-btn {
   padding: 6px 10px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
-  background: #f5f5f5;
+  background: var(--color-bg-alt);
   font: inherit;
   font-weight: bold;
   cursor: pointer;
@@ -1396,22 +1609,26 @@ td.leaf-title-cell:hover {
 /* evidenziazione temporanea del titolo del task delegato (sfondo, non colore del testo):
    si spegne quando il committente apre la configurazione (vedi ackDelegationNotice in
    modal.js), non al salvataggio */
-.delegation-notice-posticipata {
-  background-color: #f3e5f5;
+/* sfondi pastello fissi (vedi lo stesso motivo su .tree-row.highlight e simili, più sopra):
+   il colore del testo va fissato, non lasciato al tema */
+.delegation-notice-posticipata,
+.delegation-notice-anticipata,
+.delegation-notice-accettata {
+  color: #1a1a1a;
   border-radius: 3px;
   padding: 1px 5px;
+}
+
+.delegation-notice-posticipata {
+  background-color: #f3e5f5;
 }
 
 .delegation-notice-anticipata {
   background-color: #e8f5e9;
-  border-radius: 3px;
-  padding: 1px 5px;
 }
 
 .delegation-notice-accettata {
   background-color: #e3f2fd;
-  border-radius: 3px;
-  padding: 1px 5px;
 }
 
 /* righe di campi affiancati: ogni campo resta largo quanto il suo contenuto, non si
@@ -1464,7 +1681,7 @@ td.leaf-title-cell:hover {
 #checklist-wrapper {
   margin-top: 20px;
   padding-top: 16px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--color-border-lighter);
 }
 
 #checklist-wrapper h3 {
@@ -1480,14 +1697,14 @@ td.leaf-title-cell:hover {
 
 .checklist-table td {
   padding: 3px 4px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--color-border-lighter);
 }
 
 .checklist-table input[type="text"] {
   width: 100%;
   box-sizing: border-box;
   padding: 4px 6px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
   font: inherit;
   font-size: 13px;
@@ -1495,7 +1712,7 @@ td.leaf-title-cell:hover {
 
 .checklist-table input[type="date"] {
   padding: 3px 4px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
   font: inherit;
   font-size: 12px;
@@ -1503,12 +1720,12 @@ td.leaf-title-cell:hover {
 
 .checklist-row-completed input[type="text"] {
   text-decoration: line-through;
-  color: #999;
+  color: var(--color-text-faint);
 }
 
 .checklist-delete-btn {
-  border: 1px solid #ccc;
-  background: #f5f5f5;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-alt);
   border-radius: 4px;
   width: 24px;
   height: 24px;
@@ -1530,8 +1747,8 @@ td.leaf-title-cell:hover {
 .checklist-add-btn,
 .checklist-convert-all-btn {
   padding: 5px 10px;
-  border: 1px solid #ccc;
-  background: #f5f5f5;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-alt);
   border-radius: 4px;
   cursor: pointer;
 }
@@ -1558,7 +1775,7 @@ td.leaf-title-cell:hover {
 }
 
 #gantt-box {
-  background: white;
+  background: var(--color-bg-panel);
   border-radius: 8px;
   width: 95vw;
   height: 90vh;
@@ -1573,7 +1790,7 @@ td.leaf-title-cell:hover {
   align-items: center;
   gap: 16px;
   padding: 12px 16px;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 #gantt-title {
@@ -1592,8 +1809,8 @@ td.leaf-title-cell:hover {
 
 #gantt-close {
   padding: 5px 10px;
-  border: 1px solid #ccc;
-  background: #f5f5f5;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-alt);
   border-radius: 4px;
 }
 
@@ -1608,7 +1825,7 @@ td.leaf-title-cell:hover {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #ccc;
+  border-right: 1px solid var(--color-border);
 }
 
 /* fascia opzionale sopra l'intestazione normale (settimane/mesi/anni raggruppati, vedi
@@ -1618,13 +1835,13 @@ td.leaf-title-cell:hover {
 #gantt-outline-super-header {
   flex-shrink: 0;
   box-sizing: border-box;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 #gantt-timeline-super-header-scroll {
   flex-shrink: 0;
   overflow: hidden;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--color-border-light);
   box-sizing: border-box;
 }
 
@@ -1642,8 +1859,8 @@ td.leaf-title-cell:hover {
   padding: 0 8px;
   font-size: 12px;
   font-weight: bold;
-  color: #555;
-  border-bottom: 1px solid #ddd;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 /* riga "sommario" col grafico del carico complessivo (render_gantt.js), basso e largo:
@@ -1653,14 +1870,14 @@ td.leaf-title-cell:hover {
   flex-shrink: 0;
   box-sizing: border-box;
   position: relative;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 #gantt-timeline-chart-scroll {
   height: 90px;
   flex-shrink: 0;
   overflow: hidden;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--color-border-light);
   box-sizing: border-box;
 }
 
@@ -1692,7 +1909,7 @@ td.leaf-title-cell:hover {
   align-items: center;
   gap: 4px;
   padding-right: 8px;
-  border-bottom: 1px solid #f5f5f5;
+  border-bottom: 1px solid var(--color-border-lighter);
   font-size: 13px;
   cursor: context-menu;
 }
@@ -1726,7 +1943,7 @@ td.leaf-title-cell:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #1565c0;
+  color: var(--color-accent);
 }
 
 .gantt-row-dep-badge {
@@ -1750,7 +1967,7 @@ td.leaf-title-cell:hover {
   height: 40px;
   flex-shrink: 0;
   overflow: hidden;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 #gantt-timeline-header {

@@ -20,7 +20,13 @@ const fieldDatesComputed = document.getElementById("field-dates-computed");
 const fieldEstimatedEditableRow = document.getElementById("field-estimated-editable-row");
 const fieldEstimatedComputedWrapper = document.getElementById("field-estimated-computed-wrapper");
 const fieldEstimatedComputed = document.getElementById("field-estimated-computed");
-const fieldEstimatedDays = document.getElementById("field-estimated-days");
+const fieldEstimatedDaysPart = document.getElementById("field-estimated-days-part");
+const fieldEstimatedHoursPart = document.getElementById("field-estimated-hours-part");
+// 1 giornata lavorativa = 8 ore: solo una convenzione per convertire il campo "ore" (più
+// comodo per stime brevi) nel valore in giorni che il backend salva e usa per il carico di
+// lavoro — non c'entra con CAPACITA_PRODUTTIVA_MEDIA (quella è quanto di una giornata è
+// davvero disponibile in media, questa è solo l'unità di misura dell'input)
+const ORE_PER_GIORNO = 8;
 const fieldProjectCodeRow = document.getElementById("field-project-code-row");
 const fieldProjectCodeEditableWrapper = document.getElementById("field-project-code-editable-wrapper");
 const fieldProjectCodeReadonlyWrapper = document.getElementById("field-project-code-readonly-wrapper");
@@ -66,6 +72,35 @@ let creatingParentId = null;
 let afterSaveCallback = () => {};
 let selectedDependencyIds = new Set();
 let editingIsLeaf = true; // un nodo nuovo è sempre una foglia
+
+// scompone un estimated_days (unico valore, quello salvato/usato dal backend per il carico
+// di lavoro) nei due campi "giorni"/"ore" del form — solo per la UI, arrotonda alla mezz'ora
+// più vicina per evitare differenze illeggibili dovute ai decimali
+function splitEstimatedDays(value) {
+  if (value == null) return { days: 0, hours: 0 };
+  const totalHours = Math.round(value * ORE_PER_GIORNO * 2) / 2;
+  const days = Math.floor(totalHours / ORE_PER_GIORNO);
+  const hours = Math.round((totalHours - days * ORE_PER_GIORNO) * 10) / 10;
+  return { days, hours };
+}
+
+// inverso di splitEstimatedDays: dai due campi del form al valore unico che il backend si
+// aspetta — null se entrambi vuoti/zero (nessuna stima), come il vecchio campo singolo
+function combineEstimatedDays(daysValue, hoursValue) {
+  const days = daysValue ? Number(daysValue) : 0;
+  const hours = hoursValue ? Number(hoursValue) : 0;
+  if (!days && !hours) return null;
+  return days + hours / ORE_PER_GIORNO;
+}
+
+function formatEstimatedDays(value) {
+  if (value == null) return "—";
+  const { days, hours } = splitEstimatedDays(value);
+  const parts = [];
+  if (days) parts.push(`${days}g`);
+  if (hours) parts.push(`${hours}h`);
+  return parts.length ? parts.join(" ") : "0g";
+}
 
 function populateStatusOptions() {
   fieldStatus.innerHTML = "";
@@ -546,9 +581,11 @@ function applyNodeTypeFields(node) {
   fieldEstimatedEditableRow.style.display = leaf ? "flex" : "none";
   fieldEstimatedComputedWrapper.style.display = leaf ? "none" : "flex";
   if (leaf) {
-    fieldEstimatedDays.value = node.estimated_days ?? "";
+    const { days, hours } = splitEstimatedDays(node.estimated_days);
+    fieldEstimatedDaysPart.value = days || "";
+    fieldEstimatedHoursPart.value = hours || "";
   } else {
-    fieldEstimatedComputed.textContent = node.estimated_days != null ? `${node.estimated_days} giorni` : "—";
+    fieldEstimatedComputed.textContent = formatEstimatedDays(node.estimated_days);
   }
 
   updateProjectCodeVisibility(node, node.parent_id === null);
@@ -661,7 +698,7 @@ async function submitForm() {
   if (editingIsLeaf) {
     payload.deadline = fieldDeadline.value || null;
     payload.execution_date = fieldExecutionDate.value || null;
-    payload.estimated_days = fieldEstimatedDays.value ? Number(fieldEstimatedDays.value) : null;
+    payload.estimated_days = combineEstimatedDays(fieldEstimatedDaysPart.value, fieldEstimatedHoursPart.value);
   }
 
   // solo su un nodo radice e solo per un utente autorizzato il campo è editabile (vedi

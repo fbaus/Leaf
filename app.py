@@ -1541,6 +1541,17 @@ def ack_escalation(task_id):
     return {"status": "ok"}
 
 
+# azzera in un colpo solo tutte le notifiche temporanee dell'utente corrente (stesso effetto
+# di aprire, uno per uno, ogni nodo con un'escalation o una notifica di delega ancora accesa)
+# — voce del menu tasto destro sul nodo "utente" fittizio in Albero, vedi render_tree.js
+@app.route("/notifications/reset-all", methods=["POST"])
+def reset_all_notifications():
+    user_id = current_user_id()
+    execute_db("UPDATE tasks SET escalation_seen = 1 WHERE owner_id = ?", (user_id,))
+    execute_db("UPDATE tasks SET delegation_notice = NULL WHERE committente_user_id = ?", (user_id,))
+    return {"status": "ok"}
+
+
 # ---------------------------------------------------------------------------
 # Vista "Carico di lavoro" (Fase 5) — unico endpoint che deliberatamente non è owner/
 # committente-scoped: chiunque loggato vede, di chiunque altro, titolo/date/status/stima

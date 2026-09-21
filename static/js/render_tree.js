@@ -10,7 +10,7 @@ import {
   rootProjectCode,
   STATUS_IN_LISTA,
 } from "./utils.js";
-import { deleteTask, setFocus, moveTask } from "./api.js";
+import { deleteTask, setFocus, moveTask, resetAllNotifications } from "./api.js";
 import { openCreateModal, openEditModal } from "./modal.js";
 import { showContextMenu } from "./context_menu.js";
 import { showConfirmDialog } from "./confirm_dialog.js";
@@ -378,14 +378,27 @@ function renderSearchBox(container) {
 function userRootContextMenuItems() {
   return [
     { label: "Vista Gantt (tutti i progetti)", onClick: () => openGanttViewForAllProjects() },
+    {
+      label: "Resetta tutte le notifiche",
+      onClick: async () => {
+        try {
+          await resetAllNotifications();
+          await reload();
+        } catch (err) {
+          alert(err.message);
+        }
+      },
+    },
   ];
 }
 
 // nodo "utente" fittizio (solo grafico, non un vero task) in cima all'albero: racchiude
 // tutti i progetti radice, si espande/collassa come un nodo normale (persistito con
 // USER_ROOT_KEY in state.expandedIds, incluso da "Espandi tutto" — vedi main.js). Il tasto
-// destro apre per ora solo "Vista Gantt" di tutti i progetti insieme; è il punto naturale
-// dove aggiungere in futuro altre azioni a livello di account.
+// destro apre "Vista Gantt" di tutti i progetti insieme e "Resetta tutte le notifiche"
+// (escalation ed avvisi di delega ancora accesi, come aprire uno per uno ogni nodo
+// interessato); è il punto naturale dove aggiungere in futuro altre azioni a livello di
+// account.
 function renderUserRootRow(tree, childrenUl) {
   const li = document.createElement("li");
 

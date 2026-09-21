@@ -65,13 +65,15 @@ function rowIndexForY(rowRanges, y) {
 // trascinamento di un'estremità/barra esistente (attachBarHandleDrag/attachBarMoveDrag in
 // timeline.js): qui non c'è ancora nulla, riusa solo le primitive di coordinate/tooltip/
 // esclusione-drag già pronte
-function attachPlanningCreateDrag(inner, leaves, rowRanges, days, dayWidth, superHeaderHeight) {
+function attachPlanningCreateDrag(inner, leaves, rowRanges, days, dayWidth) {
   inner.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
     if (e.target.closest(".planning-block")) return;
 
     const innerRect = inner.getBoundingClientRect();
-    const yRelativeToTable = e.clientY - innerRect.top - superHeaderHeight;
+    // rowRanges è già nello spazio locale di .calendar-inner (vedi dove viene costruito),
+    // che ora coincide con innerRect stesso: nessuna conversione aggiuntiva necessaria
+    const yRelativeToTable = e.clientY - innerRect.top;
     const rowIndex = rowIndexForY(rowRanges, yRelativeToTable);
     if (rowIndex < 0) return;
     const node = leaves[rowIndex];
@@ -88,7 +90,7 @@ function attachPlanningCreateDrag(inner, leaves, rowRanges, days, dayWidth, supe
     const bar = document.createElement("div");
     bar.className = "calendar-bar planning-block";
     const height = range.bottom - range.top;
-    bar.style.top = `${range.top + height * 0.3 + superHeaderHeight}px`;
+    bar.style.top = `${range.top + height * 0.3}px`;
     bar.style.height = `${height * 0.4}px`;
     inner.appendChild(bar);
 
@@ -207,7 +209,7 @@ function attachPlanningHandleDrag(handle, edge, block, dayIndex, dayWidth, inner
   });
 }
 
-export function renderPlanningInner(inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, theadHeight) {
+export function renderPlanningInner(headerInner, inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, theadHeight) {
   const days = buildPlanningDays();
   const dayWidth = planningDayWidth();
   const totalWidth = dayWidth * PLANNING_DAYS;
@@ -224,7 +226,7 @@ export function renderPlanningInner(inner, leaves, bodyRows, tableRect, tableHei
     cell.textContent = day.label;
     superHeaderRow.appendChild(cell);
   });
-  inner.appendChild(superHeaderRow);
+  headerInner.appendChild(superHeaderRow);
 
   // intestazione: una cella per ora, 24 per giorno (PX_PER_MINUTE=1 → 60px l'una)
   const headerRow = document.createElement("div");
@@ -239,17 +241,17 @@ export function renderPlanningInner(inner, leaves, bodyRows, tableRect, tableHei
       headerRow.appendChild(cell);
     }
   }
-  inner.appendChild(headerRow);
+  headerInner.appendChild(headerRow);
 
   // sfondo grigio per le ore non lavorative (18:00-08:00, su ogni giorno) e per i giorni di
   // weekend (colonna intera): stesso trattamento visivo/classe usata in vista timeline per
   // sabato/domenica (.calendar-weekend-band, pointer-events:none), disegnato per primo così
   // resta sotto le linee della griglia e le barre. Puramente visivo: non limita in alcun modo
   // il gesto di creazione (il mousedown è su .calendar-inner, gli eventi arrivano comunque
-  // per bubbling attraverso la banda). La banda copre solo l'area delle righe (sotto
-  // l'intestazione oraria): essendo position:absolute renderebbe altrimenti sopra la riga di
-  // intestazione (che è in flusso normale, non posizionata) nascondendo le etichette delle ore
-  const rowsTop = superHeaderHeight + theadHeight;
+  // per bubbling attraverso la banda). .calendar-inner rappresenta solo l'area righe (la
+  // fascia super-header + intestazione oraria vive ora in un contenitore sticky separato,
+  // vedi renderCalendarOverlay), quindi le bande partono da top:0
+  const rowsTop = 0;
   const rowsHeight = tableHeight - theadHeight;
   days.forEach((day, d) => {
     const dayOffset = d * dayWidth;
@@ -287,22 +289,24 @@ export function renderPlanningInner(inner, leaves, bodyRows, tableRect, tableHei
       const line = document.createElement("div");
       line.className = minutes % 60 === 0 ? "calendar-grid-line" : "planning-quarter-line";
       line.style.left = `${x}px`;
-      line.style.top = `${superHeaderHeight}px`;
-      line.style.height = `${tableHeight}px`;
+      line.style.top = "0";
+      line.style.height = `${rowsHeight}px`;
       inner.appendChild(line);
     }
   }
 
   // riga orizzontale per ogni task, stesso bordo della tabella FOGLIE reale (stessa
-  // tecnica di misurazione della vista timeline, per restare allineati alla tabella)
+  // tecnica di misurazione della vista timeline, per restare allineati alla tabella).
+  // Già nello spazio locale di .calendar-inner (origine = cima dell'area righe, sotto la
+  // fascia intestazione ora in un contenitore separato), non nello spazio della <table> reale
   const rowRanges = bodyRows.map((tr) => {
     const r = tr.getBoundingClientRect();
-    return { top: r.top - tableRect.top, bottom: r.bottom - tableRect.top };
+    return { top: r.top - tableRect.top - theadHeight, bottom: r.bottom - tableRect.top - theadHeight };
   });
   rowRanges.forEach((r) => {
     const rowLine = document.createElement("div");
     rowLine.className = "calendar-row-line";
-    rowLine.style.top = `${r.bottom + superHeaderHeight}px`;
+    rowLine.style.top = `${r.bottom}px`;
     rowLine.style.width = `${totalWidth}px`;
     inner.appendChild(rowLine);
   });
@@ -312,8 +316,8 @@ export function renderPlanningInner(inner, leaves, bodyRows, tableRect, tableHei
   const todayLine = document.createElement("div");
   todayLine.className = "calendar-today-line";
   todayLine.style.left = `${nowOffset}px`;
-  todayLine.style.top = `${superHeaderHeight}px`;
-  todayLine.style.height = `${tableHeight}px`;
+  todayLine.style.top = "0";
+  todayLine.style.height = `${rowsHeight}px`;
   inner.appendChild(todayLine);
 
   // blocchi esistenti (solo quelli la cui riga è fra le foglie attualmente visibili)
@@ -333,7 +337,7 @@ export function renderPlanningInner(inner, leaves, bodyRows, tableRect, tableHei
     bar.className = "calendar-bar planning-block";
     bar.style.left = `${left + 1}px`;
     bar.style.width = `${Math.max(right - left - 2, 4)}px`;
-    bar.style.top = `${range.top + height * 0.3 + superHeaderHeight}px`;
+    bar.style.top = `${range.top + height * 0.3}px`;
     bar.style.height = `${height * 0.4}px`;
     bar.title = `${leaves[rowIndex].title} (${formatMinutes(block.start_min)}–${formatMinutes(block.end_min)})`;
 
@@ -364,7 +368,7 @@ export function renderPlanningInner(inner, leaves, bodyRows, tableRect, tableHei
     inner.appendChild(bar);
   });
 
-  attachPlanningCreateDrag(inner, leaves, rowRanges, days, dayWidth, superHeaderHeight);
+  attachPlanningCreateDrag(inner, leaves, rowRanges, days, dayWidth);
 
   const initialScrollLeft = Math.max(nowOffset - 40, 0);
   return { totalWidth, initialScrollLeft };

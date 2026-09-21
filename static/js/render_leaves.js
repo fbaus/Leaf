@@ -61,6 +61,10 @@ function renderFilterBar(mainPanel) {
   bar.appendChild(calBtn);
 
   mainPanel.appendChild(bar);
+  // l'header della tabella (sticky, vedi .leaves-table thead th in style.css) si aggancia
+  // esattamente sotto a questa barra: la sua altezza reale (non fissa, i bottoni possono
+  // andare a capo) va misurata qui, non indovinata in CSS
+  mainPanel.style.setProperty("--filter-bar-height", `${bar.getBoundingClientRect().height}px`);
 }
 
 // percentuali (sommano a 100):
@@ -311,6 +315,31 @@ function renderChecklist(sidePanel) {
   actions.appendChild(selectAllBtn);
   actions.appendChild(deselectAllBtn);
   box.appendChild(actions);
+
+  // filtro rapido per presenza del codice progetto: riusa lo stesso state.leafFilters.rootIds
+  // già usato dai checkbox sotto (imposta direttamente l'insieme dei progetti radice che
+  // rispettano il criterio), nessun nuovo stato da introdurre
+  const codeActions = document.createElement("div");
+  codeActions.className = "root-checklist-actions";
+  const withCodeBtn = document.createElement("button");
+  withCodeBtn.textContent = "Con codice";
+  withCodeBtn.onclick = () => {
+    state.leafFilters.rootIds = new Set(
+      getRootNodes(state.tasks).filter((r) => r.project_code != null).map((r) => r.id)
+    );
+    rerender();
+  };
+  const withoutCodeBtn = document.createElement("button");
+  withoutCodeBtn.textContent = "Senza codice";
+  withoutCodeBtn.onclick = () => {
+    state.leafFilters.rootIds = new Set(
+      getRootNodes(state.tasks).filter((r) => r.project_code == null).map((r) => r.id)
+    );
+    rerender();
+  };
+  codeActions.appendChild(withCodeBtn);
+  codeActions.appendChild(withoutCodeBtn);
+  box.appendChild(codeActions);
 
   getRootNodes(state.tasks).forEach((root) => {
     const label = document.createElement("label");

@@ -27,20 +27,20 @@ const SUPER_HEADER_HEIGHT = 20; // fascia settimane/mesi/anni (o giorni, in Pian
 // con il corpo alternativo della vista "Pianificazione" (vedi render_planning.js)
 // ---------------------------------------------------------------------------
 
-function renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, granularity, theadHeight, opts = {}) {
+function renderTimelineInner(headerInner, inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, granularity, theadHeight, opts = {}) {
   const { afterCommit } = opts;
   const buckets = buildBuckets(leaves, granularity);
   const totalWidth = buckets.reduce((sum, b) => sum + b.width, 0);
   const todayIndex = buckets.findIndex((b) => b.isToday);
+  // altezza della sola area righe (tableHeight della <table> reale include anche il suo
+  // thead): da quando la fascia super-header + intestazione giorni vive in un contenitore
+  // sticky separato (.calendar-header-scroll, vedi renderCalendarOverlay), .calendar-inner
+  // rappresenta SOLO l'area corpo, quindi parte da top:0 invece che da superHeaderHeight
+  const bodyHeight = tableHeight - theadHeight;
 
   // fascia superiore (settimane/mesi/anni raggruppati): per "anno" (vista "Globale") non
   // c'è raggruppamento, ma la fascia resta comunque presente (vuota, grigia) invece di
-  // sparire — così l'altezza del calendario non cambia cambiando granularità. Aggiunge
-  // righe SOPRA a quella che finora era la cima di .calendar-inner (allineata alla cima
-  // della <table> reale, vedi overlay.style.top più sotto), quindi ogni elemento
-  // posizionato con top:0 relativo a .calendar-inner (bande weekend, linee griglia, linea
-  // "oggi", barre) deve scendere di superHeaderHeight per restare allineato com'era prima
-  // di questa fascia
+  // sparire — così l'altezza del calendario non cambia cambiando granularità.
   const superGroups = buildSuperHeaderGroups(buckets, granularity);
 
   const superHeaderRow = document.createElement("div");
@@ -62,7 +62,7 @@ function renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, su
     filler.style.width = `${totalWidth}px`;
     superHeaderRow.appendChild(filler);
   }
-  inner.appendChild(superHeaderRow);
+  headerInner.appendChild(superHeaderRow);
 
   const headerRow = document.createElement("div");
   headerRow.className = "calendar-header-row";
@@ -80,7 +80,7 @@ function renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, su
     });
     headerRow.appendChild(cell);
   });
-  inner.appendChild(headerRow);
+  headerInner.appendChild(headerRow);
 
   // sfondo grigio per le colonne di sabato/domenica (vista Giorno), disegnato per primo
   // così resta sotto le linee della griglia, la linea di "oggi" e le barre
@@ -89,9 +89,9 @@ function renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, su
     const band = document.createElement("div");
     band.className = "calendar-weekend-band";
     band.style.left = `${bucketOffset(buckets, i)}px`;
-    band.style.top = `${superHeaderHeight}px`;
+    band.style.top = "0";
     band.style.width = `${b.width}px`;
-    band.style.height = `${tableHeight}px`;
+    band.style.height = `${bodyHeight}px`;
     inner.appendChild(band);
   });
 
@@ -101,8 +101,8 @@ function renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, su
     const line = document.createElement("div");
     line.className = "calendar-grid-line";
     line.style.left = `${bucketOffset(buckets, i) + b.width}px`;
-    line.style.top = `${superHeaderHeight}px`;
-    line.style.height = `${tableHeight}px`;
+    line.style.top = "0";
+    line.style.height = `${bodyHeight}px`;
     inner.appendChild(line);
   });
 
@@ -115,7 +115,7 @@ function renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, su
     const rowRect = tr.getBoundingClientRect();
     const rowLine = document.createElement("div");
     rowLine.className = "calendar-row-line";
-    rowLine.style.top = `${rowRect.bottom - tableRect.top + superHeaderHeight}px`;
+    rowLine.style.top = `${rowRect.bottom - tableRect.top - theadHeight}px`;
     rowLine.style.width = `${totalWidth}px`;
     inner.appendChild(rowLine);
   });
@@ -125,8 +125,8 @@ function renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, su
     const todayLine = document.createElement("div");
     todayLine.className = "calendar-today-line";
     todayLine.style.left = `${todayOffset}px`;
-    todayLine.style.top = `${superHeaderHeight}px`;
-    todayLine.style.height = `${tableHeight}px`;
+    todayLine.style.top = "0";
+    todayLine.style.height = `${bodyHeight}px`;
     inner.appendChild(todayLine);
   }
 
@@ -139,7 +139,7 @@ function renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, su
     const tr = bodyRows[i];
     if (!range || !tr) return;
     const rowRect = tr.getBoundingClientRect();
-    const top = rowRect.top - tableRect.top;
+    const top = rowRect.top - tableRect.top - theadHeight;
     const height = rowRect.height;
 
     const bar = document.createElement("div");
@@ -148,7 +148,7 @@ function renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, su
     bar.style.background = meta ? meta.color : "#999";
     bar.style.left = `${range.left + 1}px`;
     bar.style.width = `${Math.max(range.width - 2, 4)}px`;
-    bar.style.top = `${top + height * 0.3 + superHeaderHeight}px`;
+    bar.style.top = `${top + height * 0.3}px`;
     bar.style.height = `${height * 0.4}px`;
     bar.title = node.title;
 
@@ -318,6 +318,17 @@ export function renderCalendarOverlay(mainPanel, leaves, opts = {}) {
 
   overlay.appendChild(toolbar);
 
+  // fascia super-header + intestazione giorni/ore: contenitore sticky separato da
+  // .calendar-scroll (vedi sotto il perché), che scorre solo in orizzontale e resta
+  // agganciato sotto la toolbar mentre #main-panel scorre in verticale
+  const headerScroll = document.createElement("div");
+  headerScroll.className = "calendar-header-scroll";
+  headerScroll.style.top = `${TOOLBAR_HEIGHT}px`;
+  headerScroll.style.height = `${superHeaderHeight + theadHeight}px`;
+
+  const headerInner = document.createElement("div");
+  headerInner.className = "calendar-header-inner";
+
   const scroll = document.createElement("div");
   scroll.className = "calendar-scroll";
 
@@ -326,19 +337,23 @@ export function renderCalendarOverlay(mainPanel, leaves, opts = {}) {
 
   const { totalWidth, initialScrollLeft } =
     mode === "planning"
-      ? renderPlanningInner(inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, theadHeight)
-      : renderTimelineInner(inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, granularity, theadHeight, { afterCommit });
+      ? renderPlanningInner(headerInner, inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, theadHeight)
+      : renderTimelineInner(headerInner, inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, granularity, theadHeight, { afterCommit });
+  headerInner.style.width = `${totalWidth}px`;
   inner.style.width = `${totalWidth}px`;
-  // .calendar-inner non ha altezza CSS propria: in flusso normale la sua altezza "auto" è
-  // solo quella delle due righe di intestazione appena aggiunte (super-header + header),
-  // perché tutto il resto (linee, barre) è position:absolute e non contribuisce all'altezza
-  // del genitore. Senza questa riga il box reale di .calendar-inner resta alto solo ~50px:
-  // le barre/linee restano visibili (sono figli assoluti, possono "uscire" dal box), ma un
-  // click reale del mouse sotto quei ~50px non arriva mai al listener mousedown attaccato a
-  // .calendar-inner (il click colpisce invece il genitore .calendar-scroll) — è per questo
-  // che il trascina-per-creare in Pianificazione risultava non rispondere al click reale,
-  // pur avendo funzionato nei test con eventi sintetici dispatchati direttamente su inner.
-  inner.style.height = `${superHeaderHeight + tableHeight}px`;
+  // .calendar-inner non ha altezza CSS propria: in flusso normale la sua altezza "auto"
+  // sarebbe 0 (tutto il contenuto — bande, linee, barre — è position:absolute e non
+  // contribuisce all'altezza del genitore). Senza questa riga il box reale di
+  // .calendar-inner resterebbe alto 0px: le barre/linee restano visibili (sono figli
+  // assoluti, possono "uscire" dal box), ma un click reale del mouse non arriverebbe mai al
+  // listener mousedown attaccato a .calendar-inner (il click colpirebbe invece il genitore
+  // .calendar-scroll) — è per questo che il trascina-per-creare in Pianificazione
+  // risultava non rispondere al click reale, pur avendo funzionato nei test con eventi
+  // sintetici dispatchati direttamente su inner.
+  inner.style.height = `${tableHeight - theadHeight}px`;
+
+  headerScroll.appendChild(headerInner);
+  overlay.appendChild(headerScroll);
 
   scroll.appendChild(inner);
   overlay.appendChild(scroll);
@@ -353,22 +368,25 @@ export function renderCalendarOverlay(mainPanel, leaves, opts = {}) {
   proxySpacer.style.width = `${totalWidth}px`;
   proxy.appendChild(proxySpacer);
 
+  // scorrimento orizzontale sincronizzato fra i tre elementi (fascia intestazione sticky,
+  // corpo, scrollbar "proxy" in fondo): qualunque dei tre può iniziare lo scroll (drag
+  // diretto sul corpo, o sulla proxy), gli altri due si allineano di conseguenza
+  const syncTargets = [headerScroll, scroll, proxy];
   let syncing = false;
-  scroll.addEventListener("scroll", () => {
-    if (syncing) return;
-    syncing = true;
-    proxy.scrollLeft = scroll.scrollLeft;
-    syncing = false;
-  });
-  proxy.addEventListener("scroll", () => {
-    if (syncing) return;
-    syncing = true;
-    scroll.scrollLeft = proxy.scrollLeft;
-    syncing = false;
+  syncTargets.forEach((el) => {
+    el.addEventListener("scroll", () => {
+      if (syncing) return;
+      syncing = true;
+      syncTargets.forEach((other) => {
+        if (other !== el) other.scrollLeft = el.scrollLeft;
+      });
+      syncing = false;
+    });
   });
 
   overlay.appendChild(proxy);
   mainPanel.appendChild(overlay);
 
   scroll.scrollLeft = initialScrollLeft;
+  headerScroll.scrollLeft = initialScrollLeft;
 }

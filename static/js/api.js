@@ -157,3 +157,7 @@ export function ackDelegationNotice(id) {
 export function ackEscalation(id) {
   return postJson(`/tasks/${id}/ack-escalation`, "POST", {});
 }
+
+export function resetAllNotifications() {
+  return postJson("/notifications/reset-all", "POST", {});
+}
