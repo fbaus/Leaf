@@ -658,6 +658,47 @@ def compute_carico_lavoro_rollup(node_id, tasks_by_id, children_by_parent, cache
     return result
 
 
+def compute_carico_lavoro_rollup_unscoped(node_id, today=None):
+    """Stessa logica di compute_carico_lavoro_rollup, ma cammina nel database reale invece
+    che nella sola porzione di albero visibile al viewer corrente — stesso motivo di
+    compute_estimated_days_rollup_unscoped: un ramo delegato internamente che il committente
+    vede può avere figli reali (di un altro owner) mai presenti in GET /tasks per lui, quindi
+    children_by_parent per lui sarebbe sempre vuoto.
+    Semplificazione accettata: a differenza di _leaf_is_schedulable, non esclude le foglie
+    IN LISTA (bloccate da dipendenze non risolte), perché richiederebbe di ricostruire anche
+    la risoluzione delle dipendenze fuori dall'albero visibile al committente — un confine
+    raro (delega interna trasformata in ramo, con dentro una foglia ulteriormente bloccata da
+    dipendenze) per cui questa foglia può risultare leggermente sovrastimata."""
+    if today is None:
+        today = date.today()
+    row = query_one(
+        """
+        SELECT id, label, execution_date, deadline, estimated_days,
+               (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = tasks.id) AS children_count
+        FROM tasks WHERE id = ?
+        """,
+        [node_id],
+    )
+    if row is None:
+        return 0.0
+    if row["children_count"] == 0:
+        if row["label"] != "APERTO" or row["estimated_days"] is None or not row["execution_date"] or not row["deadline"]:
+            return 0.0
+        ex = date.fromisoformat(row["execution_date"])
+        dl = date.fromisoformat(row["deadline"])
+        if not (ex <= today <= dl):
+            return 0.0
+        return _leaf_plateau_value(row)
+
+    children = query_db("SELECT id, assegnato, executor_user_id FROM tasks WHERE parent_id = ?", [node_id])
+    total = 0.0
+    for child in children:
+        if child["executor_user_id"] is not None or child["assegnato"]:
+            continue
+        total += compute_carico_lavoro_rollup_unscoped(child["id"], today)
+    return round(total, 1)
+
+
 def has_cycle_from(start_id, graph):
     visiting, visited = set(), set()
 
@@ -1003,6 +1044,18 @@ def get_tasks():
     for t in tasks:
         if t["children_count"] > 0:
             t["estimated_days"] = compute_estimated_days_rollup(t["id"], tasks_by_id, children_by_parent, estimated_cache)
+
+    # carico di lavoro odierno (%) di ogni nodo (mostrato nella finestra di configurazione):
+    # stessa idea del rollup del tempo stimato appena sopra — un ramo delegato internamente
+    # visibile al committente può avere figli reali (di un altro owner) assenti da
+    # children_by_parent per lui, quindi si pre-carica in cache il valore vero
+    carico_cache = {}
+    today_date = date.today()
+    for t in tasks:
+        if t["children_count"] > 0 and t["committente_user_id"] == current_user_id():
+            carico_cache[t["id"]] = compute_carico_lavoro_rollup_unscoped(t["id"], today_date)
+    for t in tasks:
+        t["carico_lavoro"] = compute_carico_lavoro_rollup(t["id"], tasks_by_id, children_by_parent, carico_cache, today_date)
 
     # propaga "expired" verso l'alto (padre, nonno, ... fino alla radice): un ramo non è mai
     # "expired" di suo (la sua deadline è il rollup MAX dei figli, quindi in genere non ancora

@@ -22,6 +22,8 @@ const fieldEstimatedComputedWrapper = document.getElementById("field-estimated-c
 const fieldEstimatedComputed = document.getElementById("field-estimated-computed");
 const fieldEstimatedDaysPart = document.getElementById("field-estimated-days-part");
 const fieldEstimatedHoursPart = document.getElementById("field-estimated-hours-part");
+const fieldCaricoLavoro = document.getElementById("field-carico-lavoro");
+const fieldCaricoLavoroBranch = document.getElementById("field-carico-lavoro-branch");
 // 1 giornata lavorativa = 8 ore: solo una convenzione per convertire il campo "ore" (più
 // comodo per stime brevi) nel valore in giorni che il backend salva e usa per il carico di
 // lavoro — non c'entra con CAPACITA_PRODUTTIVA_MEDIA (quella è quanto di una giornata è
@@ -100,6 +102,13 @@ function formatEstimatedDays(value) {
   if (days) parts.push(`${days}g`);
   if (hours) parts.push(`${hours}h`);
   return parts.length ? parts.join(" ") : "0g";
+}
+
+// stesso formato di fmtPercent in render_workload.js (carico_lavoro è già arrotondato lato
+// server): "—" solo in creazione, quando il nodo non esiste ancora e non c'è nulla da
+// calcolare finché non viene salvato
+function formatCaricoLavoro(value) {
+  return value == null ? "—" : `${value}%`;
 }
 
 function populateStatusOptions() {
@@ -202,15 +211,15 @@ function updateLabelVisibility(node) {
   // mostrava comunque "Status (calcolato automaticamente)" con "(calcolato al salvataggio)",
   // fuorviante perché per un ramo non verrà mai calcolato nulla
   if (!editingIsLeaf) {
-    fieldStatusOpenWrapper.style.display = "none";
-    fieldStatusClosedWrapper.style.display = "none";
+    fieldStatusOpenWrapper.classList.add("hidden");
+    fieldStatusClosedWrapper.classList.add("hidden");
     modalSubmit.disabled = false;
     fieldDeadlineLabel.classList.remove("field-warning");
     return;
   }
 
-  fieldStatusOpenWrapper.style.display = openMode ? "block" : "none";
-  fieldStatusClosedWrapper.style.display = openMode ? "none" : "block";
+  fieldStatusOpenWrapper.classList.toggle("hidden", !openMode);
+  fieldStatusClosedWrapper.classList.toggle("hidden", openMode);
 
   if (openMode && node && node.status) {
     const meta = STATUS_META[node.status];
@@ -253,9 +262,9 @@ async function populateInternaSelect() {
 }
 
 function applyAssegnazioneCreateMode() {
-  fieldAssegnazioneEditableWrapper.style.display = "block";
-  fieldAssegnazioneInternaControls.style.display = "none";
-  delegaBtn.style.display = "none";
+  fieldAssegnazioneEditableWrapper.classList.remove("hidden");
+  fieldAssegnazioneInternaControls.classList.add("hidden");
+  delegaBtn.classList.add("hidden");
   fieldAssegnazioneExecutorWrapper.classList.add("hidden");
   fieldAssegnazioneCommittenteWrapper.classList.add("hidden");
 }
@@ -263,7 +272,7 @@ function applyAssegnazioneCreateMode() {
 // nodo esistente: 3 stati mutuamente esclusivi in base a chi guarda e se è già delegato
 // internamente (la delega esterna, che non tocca owner_id, resta nel ramo "editabile")
 function applyAssegnazioneSection(node, isOwner) {
-  fieldAssegnazioneEditableWrapper.style.display = "none";
+  fieldAssegnazioneEditableWrapper.classList.add("hidden");
   fieldAssegnazioneExecutorWrapper.classList.add("hidden");
   fieldAssegnazioneCommittenteWrapper.classList.add("hidden");
 
@@ -292,9 +301,9 @@ function applyAssegnazioneSection(node, isOwner) {
     acceptDelegationBtn.classList.toggle("hidden", !pending);
     declineDelegationBtn.textContent = pending ? "Rifiuta" : "Interrompi delega";
   } else {
-    fieldAssegnazioneEditableWrapper.style.display = "block";
-    fieldAssegnazioneInternaControls.style.display = "";
-    delegaBtn.style.display = "";
+    fieldAssegnazioneEditableWrapper.classList.remove("hidden");
+    fieldAssegnazioneInternaControls.classList.remove("hidden");
+    delegaBtn.classList.remove("hidden");
     fieldAssegnato.value = node.assegnato || "";
     fieldAssegnatoInterna.value = "";
     populateInternaSelect();
@@ -501,17 +510,20 @@ export function openCreateModal(parentId) {
   titleEl.textContent = parentId === null ? "Nuovo progetto" : "Nuova sotto-attività";
   form.reset();
   nodeFieldset.disabled = false;
-  modalSubmit.style.display = "";
+  modalSubmit.classList.remove("hidden");
   applyAssegnazioneCreateMode();
-  fieldLabelWrapper.style.display = "block";
+  fieldLabelWrapper.classList.remove("hidden");
   fieldLabel.value = "APERTO";
   fieldLabel.disabled = false;
   updateDependenciesSummary();
   updateLabelVisibility(null);
-  fieldDatesEditableRow.style.display = "flex";
-  fieldDatesComputedWrapper.style.display = "none";
-  fieldEstimatedEditableRow.style.display = "flex";
-  fieldEstimatedComputedWrapper.style.display = "none";
+  fieldDatesEditableRow.classList.remove("hidden");
+  fieldDatesComputedWrapper.classList.add("hidden");
+  fieldEstimatedEditableRow.classList.remove("hidden");
+  fieldEstimatedComputedWrapper.classList.add("hidden");
+  // come lo Status appena sotto (updateLabelVisibility): un nodo non ancora salvato non ha
+  // ancora un carico di lavoro calcolato, non semplicemente "assente" come "—" implicherebbe
+  fieldCaricoLavoro.textContent = "(calcolato al salvataggio)";
   updateProjectCodeVisibility(null, parentId === null);
   checklistWrapper.classList.add("hidden"); // serve un nodo già esistente
   fieldFocusWrapper.classList.add("hidden"); // idem: il focus si attiva solo su un nodo esistente
@@ -531,20 +543,20 @@ function parseProjectCode(code) {
 // vedono il valore in sola lettura, stesso trattamento "computed-status" già usato per
 // date/tempo stimato di un ramo
 function updateProjectCodeVisibility(node, isRoot) {
-  fieldProjectCodeRow.style.display = isRoot ? "flex" : "none";
+  fieldProjectCodeRow.classList.toggle("hidden", !isRoot);
   if (!isRoot) {
-    // senza questo, il display "block" lasciato da un nodo radice aperto in precedenza
-    // resta scritto sull'elemento (solo il contenitore .field-row viene nascosto): submitForm
-    // controlla proprio questo stile per decidere se includere project_code nel payload, e
-    // lo farebbe anche per un task non radice, causando il 409 "solo su un progetto radice"
-    fieldProjectCodeEditableWrapper.style.display = "none";
-    fieldProjectCodeReadonlyWrapper.style.display = "none";
+    // senza questo, la visibilità lasciata da un nodo radice aperto in precedenza resta
+    // scritta sull'elemento (solo il contenitore .form-row viene nascosto): submitForm
+    // controlla proprio questa classe per decidere se includere project_code nel payload,
+    // e lo farebbe anche per un task non radice, causando il 409 "solo su un progetto radice"
+    fieldProjectCodeEditableWrapper.classList.add("hidden");
+    fieldProjectCodeReadonlyWrapper.classList.add("hidden");
     return;
   }
 
   const authorized = !!(state.currentUser && state.currentUser.can_set_project_code);
-  fieldProjectCodeEditableWrapper.style.display = authorized ? "block" : "none";
-  fieldProjectCodeReadonlyWrapper.style.display = authorized ? "none" : "block";
+  fieldProjectCodeEditableWrapper.classList.toggle("hidden", !authorized);
+  fieldProjectCodeReadonlyWrapper.classList.toggle("hidden", authorized);
 
   const code = node ? node.project_code || null : null;
   if (authorized) {
@@ -562,15 +574,15 @@ function updateProjectCodeVisibility(node, isRoot) {
 function applyNodeTypeFields(node) {
   const leaf = isLeaf(node);
   editingIsLeaf = leaf;
-  fieldLabelWrapper.style.display = leaf ? "block" : "none";
+  fieldLabelWrapper.classList.toggle("hidden", !leaf);
   fieldLabel.disabled = !leaf;
   fieldLabel.value = leaf ? node.label || "APERTO" : "APERTO";
   fieldStatus.value = leaf && node.label === "CHIUSO" ? node.status || "" : "";
   updateLabelVisibility(node);
 
   // le date di un ramo sono il rollup automatico dei figli: non modificabili a mano
-  fieldDatesEditableRow.style.display = leaf ? "flex" : "none";
-  fieldDatesComputedWrapper.style.display = leaf ? "none" : "flex";
+  fieldDatesEditableRow.classList.toggle("hidden", !leaf);
+  fieldDatesComputedWrapper.classList.toggle("hidden", leaf);
   if (!leaf) {
     fieldDatesComputed.textContent =
       node.execution_date && node.deadline ? `${node.execution_date} → ${node.deadline}` : "—";
@@ -578,14 +590,16 @@ function applyNodeTypeFields(node) {
 
   // il tempo stimato di un ramo è la somma (calcolata lato server) delle foglie
   // discendenti attive: mai memorizzato su un ramo, non modificabile a mano
-  fieldEstimatedEditableRow.style.display = leaf ? "flex" : "none";
-  fieldEstimatedComputedWrapper.style.display = leaf ? "none" : "flex";
+  fieldEstimatedEditableRow.classList.toggle("hidden", !leaf);
+  fieldEstimatedComputedWrapper.classList.toggle("hidden", leaf);
   if (leaf) {
     const { days, hours } = splitEstimatedDays(node.estimated_days);
     fieldEstimatedDaysPart.value = days || "";
     fieldEstimatedHoursPart.value = hours || "";
+    fieldCaricoLavoro.textContent = formatCaricoLavoro(node.carico_lavoro);
   } else {
     fieldEstimatedComputed.textContent = formatEstimatedDays(node.estimated_days);
+    fieldCaricoLavoroBranch.textContent = formatCaricoLavoro(node.carico_lavoro);
   }
 
   updateProjectCodeVisibility(node, node.parent_id === null);
@@ -675,7 +689,7 @@ export async function openEditModal(node) {
   updateChecklistVisibility(fresh, isOwner);
 
   nodeFieldset.disabled = !isOwner;
-  modalSubmit.style.display = isOwner ? "" : "none";
+  modalSubmit.classList.toggle("hidden", !isOwner);
 
   overlay.classList.remove("hidden");
   fieldTitle.focus();
@@ -704,13 +718,13 @@ async function submitForm() {
   // solo su un nodo radice e solo per un utente autorizzato il campo è editabile (vedi
   // updateProjectCodeVisibility) — altrimenti non fa parte del payload, il valore esistente
   // resta invariato
-  if (fieldProjectCodeEditableWrapper.style.display === "block") {
+  if (!fieldProjectCodeEditableWrapper.classList.contains("hidden")) {
     const number = fieldProjectCodeNumber.value.trim();
     const year = fieldProjectCodeYear.value.trim();
     payload.project_code = number || year ? `${number}-20${year}` : null;
   }
 
-  if (fieldLabelWrapper.style.display === "block") {
+  if (!fieldLabelWrapper.classList.contains("hidden")) {
     payload.label = fieldLabel.value;
     if (fieldLabel.value === "APERTO") {
       // in modifica, l'assegnazione (interna o esterna) passa dal bottone "Delega"

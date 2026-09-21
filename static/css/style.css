@@ -1218,40 +1218,34 @@ td.leaf-title-cell:hover {
 }
 
 .computed-status {
-  padding: 6px;
-  margin-top: 4px;
+  padding: 6px 8px;
   border: 1px solid var(--color-border-lighter);
   border-radius: 4px;
   background: var(--color-bg-alt);
   font-weight: bold;
+  box-sizing: border-box;
 }
 
 /* una riga per dipendenza (un <div> per nome, vedi updateDependenciesSummary in modal.js):
    il riquadro cresce verso il basso fino a max-height, oltre la quale scorre invece di
    troncare */
 #dependencies-summary {
-  max-width: 22em;
+  width: 100%;
   max-height: 6.5em;
-  padding: 6px;
-  margin: 4px 0 6px;
+  padding: 6px 8px;
   border: 1px solid var(--color-border-lighter);
   border-radius: 4px;
   background: var(--color-bg-alt);
   font-size: 13px;
   line-height: 1.5;
   overflow-y: auto;
+  box-sizing: border-box;
 }
 
-/* "Dipendenze" e il bottone "+" sullo stesso rigo del testo dell'etichetta (come
-   "Assegnato" col suo campo): stessa struttura testo+controllo inline così le due
-   etichette restano alla stessa altezza */
+/* "Dipendenze" e il bottone "+" sullo stesso rigo dell'etichetta, allineati con
+   justify-content:space-between (vedi .form-field-label-row) */
 #dependencies-picker-btn {
-  margin-left: 6px;
-  /* un <button> non condivide esattamente la stessa linea di base di un <input> anche a
-     parità di padding/altezza: questo margine nudge lo riallinea con precisione al testo
-     "Assegnato", verificato via misurazione diretta dei due testi */
-  margin-top: 4px;
-  padding: 6px 10px;
+  padding: 2px 9px;
   border: 1px solid var(--color-border);
   border-radius: 4px;
   background: var(--color-bg-alt);
@@ -1389,11 +1383,15 @@ td.leaf-title-cell:hover {
 #modal-box {
   background: var(--color-bg-panel);
   border-radius: 8px;
-  padding: 24px;
-  width: 820px;
+  padding: 24px 28px;
+  width: 700px;
   max-width: 90vw;
   max-height: 90vh;
   overflow-y: auto;
+}
+
+#modal-title {
+  margin: 0 0 20px;
 }
 
 /* z-index più alto di tutti gli altri overlay (gantt 900, modal 1000, dependency-picker
@@ -1505,41 +1503,87 @@ td.leaf-title-cell:hover {
   display: none;
 }
 
-#node-form label {
-  display: block;
-  margin-bottom: 14px;
-  font-size: 13px;
+/* il <fieldset> che avvolge i campi editabili del modale: oltre a poter disabilitare in
+   blocco tutti i controlli (committente in sola lettura su un nodo delegato non suo), è
+   il grid principale del form — ogni figlio diretto è una "riga" (un .form-field a tutta
+   larghezza, o un .form-row che ne affianca più d'uno) */
+#node-fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  row-gap: 18px;
+}
+
+#node-fieldset:disabled {
+  opacity: 0.7;
+}
+
+/* riga con più campi affiancati in colonne di pari larghezza: ogni campo resta ancorato
+   in alto (align-items:start) così un'etichetta più lunga o un valore multi-riga in una
+   colonna non spinge in basso il contenuto della colonna vicina */
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 24px;
+  align-items: start;
+}
+
+/* stessa necessità di specificità di .checkbox-label.hidden più sotto: .form-row da sola
+   batterebbe .hidden{display:none} perché arriva dopo nel foglio di stile a parità di
+   specificità */
+.form-row.hidden {
+  display: none;
+}
+
+/* singolo campo: etichetta sempre sopra il controllo (mai affiancata), stessa struttura
+   per ogni campo del form così l'occhio scorre sempre "etichetta poi valore" — il
+   controllo resta largo quanto il suo contenuto (align-items:flex-start), tranne nei
+   campi .form-field--full che occupano tutta la larghezza disponibile */
+.form-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.form-field.hidden {
+  display: none;
+}
+
+.form-field--full {
+  grid-column: 1 / -1;
+  align-items: stretch;
+}
+
+.form-field label,
+.form-field-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
 }
 
 #node-form input,
 #node-form textarea,
 #node-form select {
   padding: 6px 8px;
-  margin-top: 4px;
   border: 1px solid var(--color-border);
   border-radius: 4px;
   font: inherit;
   box-sizing: border-box;
 }
 
-#field-title,
-#field-description {
+/* select e date restano larghi quanto il loro contenuto (comportamento nativo, non
+   forzato): solo nei campi a tutta larghezza il controllo si estende per riempirla */
+.form-field--full input,
+.form-field--full textarea {
   width: 100%;
 }
 
 #node-form textarea {
   min-height: 60px;
-}
-
-/* select e date: larghezza intrinseca (si adattano al testo/valore che contengono),
-   non estesi a tutta la finestra */
-#node-form select,
-#node-form input[type="date"] {
-  width: auto;
-}
-
-#field-assegnato {
-  width: 14em;
+  resize: vertical;
 }
 
 .project-code-inputs {
@@ -1553,33 +1597,47 @@ td.leaf-title-cell:hover {
   text-align: center;
 }
 
-/* il <fieldset> che avvolge i campi editabili del modale: nessuno stile proprio, serve
-   solo per poter disabilitare in blocco tutti i controlli quando il committente apre in
-   sola lettura un nodo delegato che non gli appartiene */
-#node-fieldset {
-  border: none;
-  margin: 0;
-  padding: 0;
+/* "Tempo stimato": un unico gruppo compatto invece di due campi separati con etichette
+   proprie (gg/h come unità dentro il gruppo, non come label a sé stanti) */
+.estimated-inputs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-#node-fieldset:disabled {
-  opacity: 0.7;
+.estimated-inputs input {
+  width: 3.5em;
+  text-align: right;
 }
 
-.assegnazione-title {
-  display: block;
-  font-size: 13px;
-  font-weight: bold;
-  margin-bottom: 4px;
+.estimated-inputs .unit {
+  font-size: 12px;
+  color: var(--color-text-muted);
 }
 
-#field-assegnazione-interna-controls {
-  margin-bottom: 8px;
+/* sezione "Assegnazione" editabile: titolo di sezione (non un'etichetta di campo singolo)
+   sopra ai due sotto-campi Interna/Esterna, che seguono comunque lo stesso schema
+   etichetta-sopra-controllo di .form-field */
+#field-assegnazione-editable-wrapper {
+  gap: 10px;
+}
+
+/* Interna ed Esterna occupano tutta la larghezza della colonna Assegnazione (non solo
+   quanto basta al loro contenuto): restano allineate fra loro invece di avere ciascuna
+   una larghezza diversa in base al proprio valore */
+#field-assegnazione-editable-wrapper .form-field {
+  width: 100%;
+}
+
+#field-assegnazione-editable-wrapper select,
+#field-assegnazione-editable-wrapper input {
+  width: 100%;
 }
 
 #delega-btn,
 #accept-delegation-btn,
 #decline-delegation-btn {
+  align-self: flex-start;
   padding: 6px 10px;
   border: 1px solid var(--color-border);
   border-radius: 4px;
@@ -1592,7 +1650,13 @@ td.leaf-title-cell:hover {
 #field-assegnazione-executor-actions {
   display: flex;
   gap: 8px;
-  margin-top: 6px;
+}
+
+/* le info di delega (esecutore/committente) riempiono tutta la colonna Assegnazione,
+   come i sotto-campi Interna/Esterna sopra */
+#field-assegnazione-executor-info,
+#field-assegnazione-committente-info {
+  width: 100%;
 }
 
 /* un selettore per id come quello sopra batte .hidden{display:none} per specificità anche
@@ -1631,39 +1695,41 @@ td.leaf-title-cell:hover {
   background-color: #e3f2fd;
 }
 
-/* righe di campi affiancati: ogni campo resta largo quanto il suo contenuto, non si
-   allunga per riempire lo spazio residuo della riga */
-.field-row {
+/* "Dipendenze": etichetta e bottone "+" sulla stessa riga, agli estremi opposti */
+.form-field-label-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
 }
 
-.field-row > * {
-  margin-bottom: 14px;
+.form-field-label-row label {
+  margin: 0;
 }
 
 #field-dependencies-wrapper {
-  margin-bottom: 14px;
   font-size: 13px;
 }
 
 .checkbox-row {
   display: flex;
   gap: 24px;
-  margin-bottom: 14px;
 }
 
 .checkbox-label {
-  display: flex !important;
+  display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 0 !important;
+}
+
+/* stessa necessità di specificità di #field-assegnazione-executor-actions.hidden più
+   sopra: .checkbox-label{display:flex} da sola batterebbe .hidden{display:none} */
+.checkbox-label.hidden {
+  display: none;
 }
 
 .checkbox-label input {
-  width: auto !important;
+  width: auto;
 }
 
 .checkbox-label:has(input:disabled) {
@@ -1675,7 +1741,7 @@ td.leaf-title-cell:hover {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 20px;
 }
 
 #checklist-wrapper {

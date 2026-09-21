@@ -104,107 +104,114 @@
       <h2 id="modal-title">Configura nodo</h2>
       <form id="node-form">
       <fieldset id="node-fieldset">
-        <label>Titolo
+        <div class="form-field form-field--full">
+          <label for="field-title">Titolo</label>
           <input id="field-title" maxlength="60" required>
-        </label>
-        <label>Descrizione
+        </div>
+        <div class="form-field form-field--full">
+          <label for="field-description">Descrizione</label>
           <textarea id="field-description" maxlength="300"></textarea>
-        </label>
-        <div class="field-row hidden" id="field-project-code-row">
-          <div id="field-project-code-editable-wrapper">
-            <label>Codice progetto
-              <span class="project-code-inputs">
-                <input id="field-project-code-number" maxlength="3" size="3" placeholder="XXX" inputmode="numeric">
-                <span>-20</span>
-                <input id="field-project-code-year" maxlength="2" size="2" placeholder="AA" inputmode="numeric">
-              </span>
-            </label>
+        </div>
+        <div class="form-row hidden" id="field-project-code-row">
+          <div class="form-field" id="field-project-code-editable-wrapper">
+            <label>Codice progetto</label>
+            <span class="project-code-inputs">
+              <input id="field-project-code-number" maxlength="3" size="3" placeholder="XXX" inputmode="numeric">
+              <span>-20</span>
+              <input id="field-project-code-year" maxlength="2" size="2" placeholder="AA" inputmode="numeric">
+            </span>
           </div>
-          <div id="field-project-code-readonly-wrapper">
-            <label>Codice progetto
-              <div id="field-project-code-readonly" class="computed-status"></div>
-            </label>
+          <div class="form-field hidden" id="field-project-code-readonly-wrapper">
+            <label>Codice progetto</label>
+            <div id="field-project-code-readonly" class="computed-status"></div>
           </div>
         </div>
-        <div class="field-row">
-          <div id="field-label-wrapper">
-            <label>Stato del task
-              <select id="field-label">
-                <option value="APERTO">Aperto (gestito automaticamente)</option>
-                <option value="CHIUSO">Chiuso</option>
-              </select>
-            </label>
+        <div class="form-row">
+          <div class="form-field" id="field-label-wrapper">
+            <label for="field-label">Stato del task</label>
+            <select id="field-label">
+              <option value="APERTO">Aperto (gestito automaticamente)</option>
+              <option value="CHIUSO">Chiuso</option>
+            </select>
           </div>
-          <div id="field-status-open-wrapper">
-            <label>Status
-              <div id="field-status-computed" class="computed-status"></div>
-            </label>
+          <div class="form-field" id="field-status-open-wrapper">
+            <label>Status</label>
+            <div id="field-status-computed" class="computed-status"></div>
           </div>
-          <div id="field-status-closed-wrapper">
-            <label>Status
-              <select id="field-status"></select>
-            </label>
+          <div class="form-field hidden" id="field-status-closed-wrapper">
+            <label for="field-status">Status</label>
+            <select id="field-status"></select>
           </div>
         </div>
-        <div class="field-row" id="field-dates-editable-row">
-          <label>Data esecuzione
+        <div class="form-row" id="field-dates-editable-row">
+          <div class="form-field">
+            <label for="field-execution-date">Data esecuzione</label>
             <input id="field-execution-date" type="date">
-          </label>
-          <label id="field-deadline-label">Deadline
+          </div>
+          <div class="form-field" id="field-deadline-label">
+            <label for="field-deadline">Deadline</label>
             <input id="field-deadline" type="date">
-          </label>
+          </div>
         </div>
-        <div class="field-row hidden" id="field-dates-computed-wrapper">
-          <label>Date (calcolate automaticamente dai figli)
-            <div id="field-dates-computed" class="computed-status"></div>
-          </label>
+        <div class="form-field form-field--full hidden" id="field-dates-computed-wrapper">
+          <label>Date (calcolate automaticamente dai figli)</label>
+          <div id="field-dates-computed" class="computed-status"></div>
         </div>
-        <div class="field-row" id="field-estimated-editable-row">
-          <label>Tempo stimato — giorni
-            <input id="field-estimated-days-part" type="number" step="1" min="0" placeholder="0">
-          </label>
-          <label>ore
-            <input id="field-estimated-hours-part" type="number" step="0.5" min="0" max="7.5" placeholder="0">
-          </label>
+        <div class="form-row" id="field-estimated-editable-row">
+          <div class="form-field">
+            <label>Tempo stimato</label>
+            <span class="estimated-inputs">
+              <input id="field-estimated-days-part" type="number" step="1" min="0" placeholder="0"><span class="unit">gg</span>
+              <input id="field-estimated-hours-part" type="number" step="0.5" min="0" max="7.5" placeholder="0"><span class="unit">h</span>
+            </span>
+          </div>
+          <div class="form-field">
+            <label>Carico di lavoro</label>
+            <div id="field-carico-lavoro" class="computed-status"></div>
+          </div>
         </div>
-        <div class="field-row hidden" id="field-estimated-computed-wrapper">
-          <label>Tempo stimato (calcolato dai figli)
+        <div class="form-row hidden" id="field-estimated-computed-wrapper">
+          <div class="form-field">
+            <label>Tempo stimato (calcolato dai figli)</label>
             <div id="field-estimated-computed" class="computed-status"></div>
-          </label>
+          </div>
+          <div class="form-field">
+            <label>Carico di lavoro</label>
+            <div id="field-carico-lavoro-branch" class="computed-status"></div>
+          </div>
         </div>
-        <div class="field-row" id="field-assegnazione-row">
-          <div id="field-assegnazione-editable-wrapper">
-            <span class="assegnazione-title">Assegnazione</span>
-            <div id="field-assegnazione-interna-controls">
-              <label>Interna
-                <select id="field-assegnato-interna">
-                  <option value="">—</option>
-                </select>
-              </label>
+        <div class="form-row" id="field-assegnazione-row">
+          <div class="form-field" id="field-assegnazione-editable-wrapper">
+            <span class="form-field-title">Assegnazione</span>
+            <div class="form-field" id="field-assegnazione-interna-controls">
+              <label for="field-assegnato-interna">Interna</label>
+              <select id="field-assegnato-interna">
+                <option value="">—</option>
+              </select>
             </div>
-            <label>Esterna
+            <div class="form-field">
+              <label for="field-assegnato">Esterna</label>
               <input id="field-assegnato" maxlength="20" placeholder="richiede EX e DL">
-            </label>
+            </div>
             <button type="button" id="delega-btn">Delega</button>
           </div>
-          <div id="field-assegnazione-executor-wrapper" class="hidden">
-            <label>Assegnazione
-              <div id="field-assegnazione-executor-info" class="computed-status"></div>
-            </label>
+          <div class="form-field hidden" id="field-assegnazione-executor-wrapper">
+            <label>Assegnazione</label>
+            <div id="field-assegnazione-executor-info" class="computed-status"></div>
             <div id="field-assegnazione-executor-actions" class="hidden">
               <button type="button" id="accept-delegation-btn">Accetta</button>
               <button type="button" id="decline-delegation-btn">Rifiuta</button>
             </div>
           </div>
-          <div id="field-assegnazione-committente-wrapper" class="hidden">
-            <label>Assegnazione
-              <div id="field-assegnazione-committente-info" class="computed-status"></div>
-            </label>
+          <div class="form-field hidden" id="field-assegnazione-committente-wrapper">
+            <label>Assegnazione</label>
+            <div id="field-assegnazione-committente-info" class="computed-status"></div>
           </div>
-          <div id="field-dependencies-wrapper">
-            <label>Dipendenze
+          <div class="form-field" id="field-dependencies-wrapper">
+            <div class="form-field-label-row">
+              <label>Dipendenze</label>
               <button type="button" id="dependencies-picker-btn">+</button>
-            </label>
+            </div>
             <div id="dependencies-summary">Nessuna</div>
           </div>
         </div>
