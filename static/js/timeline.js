@@ -53,6 +53,29 @@ export function endExclusiveDrag() {
   activeCleanup = null;
 }
 
+// vera dal mousedown su una maniglia fino a poco dopo il mouseup corrispondente (un giro di
+// event loop dopo, per includere l'eventuale "click" nativo sintetizzato subito dopo dal
+// browser): i gestori di click che aprono qualcosa al click su barra/etichetta/riga (Gantt)
+// la controllano prima di agire. Non basta sopprimere il click solo sulla maniglia stessa:
+// se durante il trascinamento la data si aggancia a un giorno diverso da dove il mouse viene
+// rilasciato, il cursore può finire fuori dalla maniglia (es. sul corpo della barra, dove il
+// cursore diventa "manina") e il click nativo risulta su QUELL'elemento, non sulla maniglia
+let dragJustHappened = false;
+
+export function isDragJustHappened() {
+  return dragJustHappened;
+}
+
+function markDragStart() {
+  dragJustHappened = true;
+}
+
+function markDragEndSoon() {
+  setTimeout(() => {
+    dragJustHappened = false;
+  }, 0);
+}
+
 // ---------------------------------------------------------------------------
 // Helper sulle date (sempre a mezzanotte locale, per evitare sfasamenti di fuso)
 // ---------------------------------------------------------------------------
@@ -344,11 +367,30 @@ export function attachLockedBarNotice(handle) {
   });
 }
 
+// registro dei tooltip data/trascinamento ancora appesi a document.body: un tooltip creato
+// al mouseenter di una maniglia (vedi attachHandleDateTooltip in render_gantt.js) si
+// rimuove al mouseleave, ma se l'elemento sotto il mouse viene distrutto da un redraw
+// (es. il Gantt si ridisegna a fine trascinamento) PRIMA che il mouse lo lasci, il
+// mouseleave non scatta mai e il tooltip resta orfano — removeAllDragTooltips (chiamata a
+// ogni redraw/chiusura del Gantt) è la pulizia difensiva contro questo caso
+const liveTooltips = new Set();
+
 export function createDragTooltip() {
   const tooltip = document.createElement("div");
   tooltip.className = "calendar-drag-tooltip";
   document.body.appendChild(tooltip);
+  liveTooltips.add(tooltip);
   return tooltip;
+}
+
+export function removeDragTooltip(tooltip) {
+  tooltip.remove();
+  liveTooltips.delete(tooltip);
+}
+
+export function removeAllDragTooltips() {
+  liveTooltips.forEach((t) => t.remove());
+  liveTooltips.clear();
 }
 
 function formatDragDate(date) {
@@ -375,12 +417,17 @@ function updateDragTooltipRange(tooltip, execDate, deadlineDate, clientX, client
 // `opts.onDrag` (opzionale) viene richiamato a ogni movimento del mouse, dopo che la barra
 // è stata riposizionata (usato dal Gantt per ridisegnare le frecce di dipendenza in tempo
 // reale). `opts.afterCommit` (opzionale) sostituisce il default `reload` dopo un salvataggio
-// riuscito (usato dal Gantt per ridisegnarsi con i dati aggiornati).
+// riuscito (usato dal Gantt per ridisegnarsi con i dati aggiornati). `opts.onClick`
+// (opzionale) viene richiamato al mouseup SOLO se la maniglia non si è spostata: distingue
+// un vero trascinamento (che salva) da un semplice click (usato dal Gantt per aprire la
+// configurazione cliccando su un pallino, senza dover gestire un evento "click" nativo a
+// parte — quello resterebbe ambiguo dopo un trascinamento vero).
 export function attachBarHandleDrag(handle, edge, node, buckets, totalWidth, inner, bar, opts = {}) {
-  const { onDrag, afterCommit } = opts;
+  const { onDrag, afterCommit, onClick } = opts;
   handle.addEventListener("mousedown", (e) => {
     e.preventDefault();
     e.stopPropagation();
+    markDragStart();
 
     const innerLeft = inner.getBoundingClientRect().left;
     const execDate = parseISO(node.execution_date);
@@ -417,13 +464,16 @@ export function attachBarHandleDrag(handle, edge, node, buckets, totalWidth, inn
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
       endExclusiveDrag();
-      tooltip.remove();
+      removeDragTooltip(tooltip);
+      markDragEndSoon();
 
       if (currentDate.getTime() !== originalDate.getTime()) {
         const payload = edge === "left" ? { execution_date: toISO(currentDate) } : { deadline: toISO(currentDate) };
         updateTask(node.id, payload)
           .then(() => (afterCommit ? afterCommit() : reload()))
           .catch((err) => alert(err.message));
+      } else if (onClick) {
+        onClick();
       }
     };
 
@@ -434,12 +484,15 @@ export function attachBarHandleDrag(handle, edge, node, buckets, totalWidth, inn
 }
 
 // aggancio centrale: sposta l'intera barra in blocco, mantenendo invariata la durata
-// (data di esecuzione e deadline traslano dello stesso numero di giorni)
+// (data di esecuzione e deadline traslano dello stesso numero di giorni). `opts.onClick`:
+// stessa idea di attachBarHandleDrag sopra (richiamato solo se non c'è stato un vero
+// spostamento).
 export function attachBarMoveDrag(handle, node, buckets, totalWidth, inner, bar, opts = {}) {
-  const { onDrag, afterCommit } = opts;
+  const { onDrag, afterCommit, onClick } = opts;
   handle.addEventListener("mousedown", (e) => {
     e.preventDefault();
     e.stopPropagation();
+    markDragStart();
 
     const innerLeft = inner.getBoundingClientRect().left;
     const execDate = parseISO(node.execution_date);
@@ -474,7 +527,8 @@ export function attachBarMoveDrag(handle, node, buckets, totalWidth, inner, bar,
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
       endExclusiveDrag();
-      tooltip.remove();
+      removeDragTooltip(tooltip);
+      markDragEndSoon();
 
       if (currentExecDate.getTime() !== execDate.getTime()) {
         updateTask(node.id, {
@@ -483,6 +537,8 @@ export function attachBarMoveDrag(handle, node, buckets, totalWidth, inner, bar,
         })
           .then(() => (afterCommit ? afterCommit() : reload()))
           .catch((err) => alert(err.message));
+      } else if (onClick) {
+        onClick();
       }
     };
 

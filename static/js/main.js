@@ -1,4 +1,4 @@
-import { state, onRender, reload, reloadWorkload } from "./state.js";
+import { state, onRender, reload, reloadWorkload, USER_ROOT_KEY } from "./state.js";
 import { renderTree } from "./render_tree.js";
 import { renderLeaves } from "./render_leaves.js";
 import { renderWorkload } from "./render_workload.js";
@@ -103,6 +103,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("expand-all").addEventListener("click", () => {
     state.tasks.forEach((t) => state.expandedIds.add(t.id));
+    state.expandedIds.add(USER_ROOT_KEY);
     render();
   });
 

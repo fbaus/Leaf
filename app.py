@@ -872,6 +872,47 @@ def recompute_rollup(task_id):
     return {"status": "ok"}
 
 
+# usata dal grafico "carico complessivo" in cima alla Vista Gantt (render_gantt.js): riusa
+# collect_active_leaves (stessa funzione della Vista Carico di lavoro) invece di duplicare
+# in JS la formula del carico — già corretta due volte in questa sessione, va tenuta in un
+# solo posto. Owner-gated come "Vista Gantt" stessa (mai proposta al committente).
+@app.route("/tasks/<int:task_id>/carico-leaves", methods=["GET"])
+def get_carico_leaves(task_id):
+    if require_owned_task(task_id) is None:
+        return {"error": "Task non trovato"}, 404
+
+    tasks = query_db(
+        "SELECT t.*, (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = t.id) AS children_count "
+        "FROM tasks t WHERE t.owner_id = ? OR t.committente_user_id = ?",
+        [current_user_id(), current_user_id()],
+    )
+    tasks_by_id = {t["id"]: t for t in tasks}
+    children_by_parent = {}
+    for t in tasks:
+        if t["parent_id"] is not None:
+            children_by_parent.setdefault(t["parent_id"], []).append(t)
+
+    deps_by_task = {}
+    for r in query_db("SELECT task_id, depends_on_id FROM task_dependencies"):
+        if r["task_id"] in tasks_by_id:
+            deps_by_task.setdefault(r["task_id"], []).append(r["depends_on_id"])
+
+    resolution_cache = {}
+    today = date.today().isoformat()
+    for t in tasks:
+        if t["label"] == "APERTO":
+            dep_statuses = [
+                resolve_dependency_status(d, tasks_by_id, children_by_parent, resolution_cache)
+                for d in deps_by_task.get(t["id"], []) if d in tasks_by_id
+            ]
+            t["status"], _ = compute_open_status(
+                t["execution_date"], t["deadline"], t["assegnato"], dep_statuses, today,
+                is_delegated_internally=t["executor_user_id"] is not None,
+            )
+
+    return jsonify(collect_active_leaves(task_id, tasks_by_id, children_by_parent))
+
+
 # ---------------------------------------------------------------------------
 # Tasks API
 # ---------------------------------------------------------------------------

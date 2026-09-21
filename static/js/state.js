@@ -1,5 +1,11 @@
 import { fetchTasks, fetchWorkload } from "./api.js";
 
+// chiave d'appoggio in state.expandedIds per il nodo "utente" fittizio in cima all'Albero
+// (solo grafico, non un vero task — vedi render_tree.js): mai un vero id di task, così non
+// collide mai con quelli reali. Presente di default (espanso), così la prima apertura
+// dell'app resta visivamente identica a prima di questa funzionalità.
+export const USER_ROOT_KEY = "__user_root__";
+
 export const state = {
   tasks: [],
   workloadUsers: [], // dati della vista "Carico di lavoro" (GET /workload), caricati on-demand
@@ -14,7 +20,7 @@ export const state = {
   workloadCheckedEntryIds: new Set(),
   currentUser: null, // { id, username, is_superuser } dopo login/fetchMe riusciti, altrimenti null
   currentView: "albero",
-  expandedIds: new Set(),
+  expandedIds: new Set([USER_ROOT_KEY]),
   searchText: "",
   leafFilters: {
     statusGroup: "APERTE",

@@ -1,4 +1,4 @@
-import { state, reload, rerender } from "./state.js";
+import { state, reload, rerender, USER_ROOT_KEY } from "./state.js";
 import {
   buildTree,
   isLeaf,
@@ -14,7 +14,7 @@ import { deleteTask, setFocus, moveTask } from "./api.js";
 import { openCreateModal, openEditModal } from "./modal.js";
 import { showContextMenu } from "./context_menu.js";
 import { showConfirmDialog } from "./confirm_dialog.js";
-import { openGanttView } from "./render_gantt.js";
+import { openGanttView, openGanttViewForAllProjects } from "./render_gantt.js";
 
 function subtreeMatches(node, searchText) {
   if (matchesSearch(node, searchText)) return true;
@@ -375,6 +375,54 @@ function renderSearchBox(container) {
   container.appendChild(input);
 }
 
+function userRootContextMenuItems() {
+  return [
+    { label: "Vista Gantt (tutti i progetti)", onClick: () => openGanttViewForAllProjects() },
+  ];
+}
+
+// nodo "utente" fittizio (solo grafico, non un vero task) in cima all'albero: racchiude
+// tutti i progetti radice, si espande/collassa come un nodo normale (persistito con
+// USER_ROOT_KEY in state.expandedIds, incluso da "Espandi tutto" — vedi main.js). Il tasto
+// destro apre per ora solo "Vista Gantt" di tutti i progetti insieme; è il punto naturale
+// dove aggiungere in futuro altre azioni a livello di account.
+function renderUserRootRow(tree, childrenUl) {
+  const li = document.createElement("li");
+
+  const row = document.createElement("div");
+  row.className = "tree-row";
+
+  const expanded = state.expandedIds.has(USER_ROOT_KEY);
+  const toggle = document.createElement("button");
+  toggle.className = "toggle-btn";
+  toggle.textContent = expanded ? "▼" : "▶";
+  toggle.onclick = () => {
+    const isExpanded = state.expandedIds.has(USER_ROOT_KEY);
+    if (isExpanded) state.expandedIds.delete(USER_ROOT_KEY);
+    else state.expandedIds.add(USER_ROOT_KEY);
+    childrenUl.style.display = isExpanded ? "none" : "block";
+    toggle.textContent = isExpanded ? "▶" : "▼";
+  };
+  row.appendChild(toggle);
+  row.appendChild(branchToggleButton({ id: USER_ROOT_KEY, children: tree }));
+
+  const title = document.createElement("span");
+  title.className = "node-title";
+  title.title = "Tasto destro: azioni su tutti i tuoi progetti.";
+  title.textContent = state.currentUser?.username ?? "";
+  row.appendChild(title);
+
+  row.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    showContextMenu(e.clientX, e.clientY, userRootContextMenuItems());
+  });
+
+  li.appendChild(row);
+  childrenUl.style.display = expanded ? "block" : "none";
+  li.appendChild(childrenUl);
+  return li;
+}
+
 export function renderTree(container) {
   ensureRootDropZone(container);
   renderSearchBox(container);
@@ -395,11 +443,15 @@ export function renderTree(container) {
     expandForSearch(tree);
   }
 
-  const ul = document.createElement("ul");
-  ul.className = "tree-root";
+  const childrenUl = document.createElement("ul");
+  childrenUl.className = "tree-children";
   tree
     .filter((n) => !searchText || subtreeMatches(n, searchText))
-    .forEach((n) => ul.appendChild(renderNode(n, searchText, tasksById)));
+    .forEach((n) => childrenUl.appendChild(renderNode(n, searchText, tasksById)));
+
+  const ul = document.createElement("ul");
+  ul.className = "tree-root";
+  ul.appendChild(renderUserRootRow(tree, childrenUl));
 
   container.appendChild(ul);
 

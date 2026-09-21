@@ -42,6 +42,10 @@ export function recomputeRollup(id) {
   return postJson(`/tasks/${id}/recompute-rollup`, "POST", {});
 }
 
+export function fetchCaricoLeaves(id) {
+  return fetch(`/tasks/${id}/carico-leaves`).then(handle);
+}
+
 export function moveTask(id, parentId) {
   return postJson(`/tasks/${id}/parent`, "PATCH", { parent_id: parentId });
 }

@@ -544,6 +544,16 @@ td.leaf-title-cell:hover {
   flex: 1 1 auto;
   overflow-x: auto;
   overflow-y: hidden;
+  /* la scrollbar nativa (quando il contenuto supera la larghezza visibile) occupa spazio
+     verticale solo qui, non nella colonna delle etichette a fianco (.workload-chart-axis,
+     che non scorre): le due colonne finiscono con un'altezza diversa e la griglia si
+     disallinea dalle etichette. Nascosta come già .calendar-scroll altrove nell'app — lo
+     scroll resta possibile con rotella/trascinamento, il grafico si centra comunque su oggi */
+  scrollbar-width: none;
+}
+
+.workload-chart-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 .workload-chart-inner {
@@ -573,7 +583,18 @@ td.leaf-title-cell:hover {
 }
 
 .workload-chart-svg {
+  /* `flex` funziona solo dentro .workload-chart-inner (vista Carico di lavoro), che è un
+     contenitore flex-column: lì "spinge" l'SVG a riempire lo spazio rimasto sotto
+     l'intestazione dei bucket. Nel Gantt (#gantt-timeline-chart-inner) non c'è un contesto
+     flex, quindi quella regola da sola non ha alcun effetto: senza un'altezza esplicita
+     l'SVG assume l'altezza intrinseca del suo viewBox (200 unità, qui letteralmente 200px),
+     tagliata dal contenitore — si vedeva solo la fascia superiore del grafico, con le
+     etichette dell'asse completamente scollate. height:100% risolve entrambi i casi: nel
+     contesto flex resta comunque ridotto correttamente allo spazio disponibile (il valore
+     esplicito diventa solo la flex-basis, non blocca lo shrink), nel Gantt risolve
+     direttamente al 100% dell'altezza reale del contenitore (90px) */
   flex: 1 1 auto;
+  height: 100%;
   width: 100%;
   display: block;
 }
@@ -1625,6 +1646,28 @@ td.leaf-title-cell:hover {
   border-bottom: 1px solid #ddd;
 }
 
+/* riga "sommario" col grafico del carico complessivo (render_gantt.js), basso e largo:
+   stessa altezza fissa su entrambi i pannelli, come la fascia super-header sopra */
+#gantt-outline-chart-spacer {
+  height: 90px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  position: relative;
+  border-bottom: 1px solid #ddd;
+}
+
+#gantt-timeline-chart-scroll {
+  height: 90px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-bottom: 1px solid #ddd;
+  box-sizing: border-box;
+}
+
+#gantt-timeline-chart-inner {
+  height: 100%;
+}
+
 #gantt-outline-scroll {
   flex: 1;
   overflow-y: auto;
@@ -1651,6 +1694,7 @@ td.leaf-title-cell:hover {
   padding-right: 8px;
   border-bottom: 1px solid #f5f5f5;
   font-size: 13px;
+  cursor: context-menu;
 }
 
 .gantt-row-toggle {
@@ -1682,12 +1726,7 @@ td.leaf-title-cell:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
   color: #1565c0;
-}
-
-.gantt-row-title:hover {
-  text-decoration: underline;
 }
 
 .gantt-row-dep-badge {
@@ -1725,6 +1764,14 @@ td.leaf-title-cell:hover {
 
 #gantt-timeline-inner {
   position: relative;
+}
+
+/* area cliccabile a piena larghezza per riga, dietro barra/maniglie (vedi drawTimeline in
+   render_gantt.js): apre la configurazione anche cliccando dove non c'è una barra */
+.gantt-row-hitbox {
+  position: absolute;
+  left: 0;
+  cursor: pointer;
 }
 
 .gantt-dep-arrow {

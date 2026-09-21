@@ -3,14 +3,18 @@
 // righe espandibili per i figli che a loro volta hanno figli, e frecce per le dipendenze
 // fra barre entrambe visibili. Riusa il drag delle barre già scritto per il calendario
 // (vedi timeline.js) e il rollup automatico delle date sui rami (vedi app.py) per le
-// "summary bar" dei nodi con figli, senza bisogno di logica propria.
+// "summary bar" dei nodi con figli, senza bisogno di logica propria. Apribile anche sul
+// nodo "utente" fittizio in cima all'Albero (vedi render_tree.js): mostra tutti i progetti
+// radice insieme, sotto la sentinella ALL_PROJECTS_ROOT (mai un vero id di task).
 
 import { state, reload } from "./state.js";
 import { STATUS_META, isLeaf, dateSortKey } from "./utils.js";
-import { openEditModal } from "./modal.js";
-import { recomputeRollup } from "./api.js";
+import { openEditModal, openCreateModal } from "./modal.js";
+import { recomputeRollup, fetchCaricoLeaves } from "./api.js";
 import { setDependencyHighlight } from "./deps_highlight.js";
 import { jumpToTree } from "./navigate.js";
+import { showContextMenu } from "./context_menu.js";
+import { buildLeafSeries, computeMaxY, buildChartSvg, buildAxisLabels } from "./render_workload_chart.js";
 import {
   GRANULARITIES,
   DRAGGABLE_GRANULARITIES,
@@ -23,6 +27,9 @@ import {
   attachBarMoveDrag,
   attachLockedBarNotice,
   createDragTooltip,
+  removeDragTooltip,
+  removeAllDragTooltips,
+  isDragJustHappened,
   updateDragTooltip,
   parseISO,
 } from "./timeline.js";
@@ -41,6 +48,14 @@ const DEP_ARROW_TIP_GAP = 4;
 // così il testo non ci si sovrappone (lo sfondo chiaro del nome copre comunque il tratto
 // residuo di una freccia più lunga, quando non deve tornare indietro)
 const LABEL_OFFSET = DEP_ARROW_STUB + 16;
+// distanza minima (px) che un tratto verticale di una freccia deve mantenere dalla linea
+// "oggi": altrimenti, sovrapposte, diventano indistinguibili
+const DEP_ARROW_TODAY_MARGIN = 6;
+
+// sentinella per "Gantt di tutti i progetti insieme" (voce del menu sul nodo utente
+// fittizio in Albero): mai un vero id di task, sempre distinta da `null` (che significa
+// "Gantt chiuso", vedi closeGantt/refreshGanttIfOpen)
+const ALL_PROJECTS_ROOT = "__all__";
 
 const overlay = document.getElementById("gantt-overlay");
 const titleEl = document.getElementById("gantt-title");
@@ -49,10 +64,13 @@ const closeBtn = document.getElementById("gantt-close");
 const outlineScroll = document.getElementById("gantt-outline-scroll");
 const outlineBody = document.getElementById("gantt-outline-body");
 const outlineSuperHeader = document.getElementById("gantt-outline-super-header");
+const outlineChartSpacer = document.getElementById("gantt-outline-chart-spacer");
 const timelineSuperHeaderScroll = document.getElementById("gantt-timeline-super-header-scroll");
 const timelineSuperHeader = document.getElementById("gantt-timeline-super-header");
 const timelineHeaderScroll = document.getElementById("gantt-timeline-header-scroll");
 const timelineHeader = document.getElementById("gantt-timeline-header");
+const timelineChartScroll = document.getElementById("gantt-timeline-chart-scroll");
+const timelineChartInner = document.getElementById("gantt-timeline-chart-inner");
 const timelineScroll = document.getElementById("gantt-timeline-scroll");
 const timelineInner = document.getElementById("gantt-timeline-inner");
 
@@ -60,6 +78,10 @@ let rootId = null;
 let granularity = "giorno";
 let expandedIds = new Set();
 let hasScrolledToToday = false;
+// foglie attive raccolte lato server (vedi collect_active_leaves in app.py) per il
+// grafico "carico complessivo" in cima: caricate on-demand all'apertura/dopo ogni
+// modifica, mai calcolate qui per non duplicare la formula del carico in JS
+let summaryLeaves = [];
 
 // ---------------------------------------------------------------------------
 // Apertura / chiusura
@@ -84,11 +106,40 @@ export async function openGanttView(node) {
   expandedIds = new Set(collectExpandableIds(node.id));
   overlay.classList.remove("hidden");
   draw();
+  refreshSummaryChart();
+}
+
+// Gantt di tutti i progetti radice insieme (voce di menu sul nodo utente fittizio in
+// Albero, vedi render_tree.js): stessa apertura, ma la "radice" è la sentinella
+// ALL_PROJECTS_ROOT invece di un vero nodo — buildVisibleRows/collectExpandableIds la
+// traducono in `null`, che su state.tasks seleziona naturalmente tutti i progetti radice
+export async function openGanttViewForAllProjects() {
+  granularity = "settimana";
+  hasScrolledToToday = false;
+  const ownRootIds = state.tasks
+    .filter((t) => t.parent_id === null && t.owner_id === state.currentUser?.id)
+    .map((t) => t.id);
+  try {
+    await Promise.all(ownRootIds.map((id) => recomputeRollup(id)));
+    await reload();
+  } catch (err) {
+    alert(err.message);
+  }
+  rootId = ALL_PROJECTS_ROOT;
+  expandedIds = new Set(collectExpandableIds(null));
+  overlay.classList.remove("hidden");
+  draw();
+  refreshSummaryChart();
 }
 
 function closeGantt() {
   overlay.classList.add("hidden");
   rootId = null;
+  // un tooltip di data (vedi attachHandleDateTooltip) può restare orfano se la sua maniglia
+  // viene distrutta da un redraw mentre il mouse è ancora sopra di essa (niente mouseleave
+  // in quel caso): chiudendo il Gantt è comunque il momento giusto per ripulirlo, non deve
+  // sopravvivere alla chiusura fino a un refresh manuale della pagina
+  removeAllDragTooltips();
 }
 
 closeBtn.addEventListener("click", closeGantt);
@@ -106,6 +157,27 @@ overlay.addEventListener("click", (e) => {
 // richiamata da main.js dopo ogni rerender() globale (salvataggi dal modale, drag,
 // checklist, focus, ...): se il Gantt è aperto si ridisegna con i dati aggiornati
 export function refreshGanttIfOpen() {
+  if (rootId === null) return;
+  draw();
+  refreshSummaryChart();
+}
+
+// ---------------------------------------------------------------------------
+// Carico complessivo (grafico in cima, vedi drawSummaryChart): riusa collect_active_leaves
+// già scritta in app.py per la Vista Carico di lavoro invece di ricalcolare la formula qui
+// ---------------------------------------------------------------------------
+
+async function refreshSummaryChart() {
+  const idsToFetch =
+    rootId === ALL_PROJECTS_ROOT
+      ? state.tasks.filter((t) => t.parent_id === null && t.owner_id === state.currentUser?.id).map((t) => t.id)
+      : [rootId];
+  try {
+    const lists = await Promise.all(idsToFetch.map((id) => fetchCaricoLeaves(id)));
+    summaryLeaves = lists.flat();
+  } catch (err) {
+    summaryLeaves = [];
+  }
   if (rootId !== null) draw();
 }
 
@@ -117,6 +189,7 @@ let syncingVerticalScroll = false;
 timelineScroll.addEventListener("scroll", () => {
   timelineHeaderScroll.scrollLeft = timelineScroll.scrollLeft;
   timelineSuperHeaderScroll.scrollLeft = timelineScroll.scrollLeft;
+  timelineChartScroll.scrollLeft = timelineScroll.scrollLeft;
   if (syncingVerticalScroll) return;
   syncingVerticalScroll = true;
   outlineScroll.scrollTop = timelineScroll.scrollTop;
@@ -137,11 +210,18 @@ function byDeadlineAsc(a, b) {
   return dateSortKey(a.deadline).localeCompare(dateSortKey(b.deadline));
 }
 
+// traduce la radice corrente in un valore di parent_id valido su state.tasks: un vero id,
+// oppure `null` (tutti i progetti radice) per la sentinella ALL_PROJECTS_ROOT
+function realParentIdOf(idOrSentinel) {
+  return idOrSentinel === ALL_PROJECTS_ROOT ? null : idOrSentinel;
+}
+
 // nodo stesso + tutti i discendenti che a loro volta hanno figli (stessa logica di
 // collectExpandableIds nell'albero, riscritta sulla lista piatta state.tasks invece che su
-// un albero già costruito con .children)
+// un albero già costruito con .children). `nodeId === null` = tutti i progetti radice: non
+// esiste una riga reale per "null" stesso, quindi non va aggiunto all'insieme
 function collectExpandableIds(nodeId) {
-  const ids = [nodeId];
+  const ids = nodeId === null ? [] : [nodeId];
   state.tasks
     .filter((t) => t.parent_id === nodeId && t.children_count > 0)
     .forEach((child) => ids.push(...collectExpandableIds(child.id)));
@@ -177,7 +257,7 @@ function buildVisibleRows() {
         }
       });
   }
-  walk(rootId, 0);
+  walk(realParentIdOf(rootId), 0);
   return rows;
 }
 
@@ -186,12 +266,20 @@ function buildVisibleRows() {
 // ---------------------------------------------------------------------------
 
 function draw() {
-  const rootNode = state.tasks.find((t) => t.id === rootId);
-  if (!rootNode) {
+  // pulizia difensiva: un tooltip di data agganciato a una maniglia che questo stesso
+  // redraw sta per distruggere non riceverebbe mai il suo mouseleave (vedi
+  // attachHandleDateTooltip più sotto e il commento su removeAllDragTooltips in timeline.js)
+  removeAllDragTooltips();
+
+  const isGlobal = rootId === ALL_PROJECTS_ROOT;
+  const rootNode = isGlobal ? null : state.tasks.find((t) => t.id === rootId);
+  if (!isGlobal && !rootNode) {
     closeGantt();
     return;
   }
-  titleEl.textContent = `Gantt — ${rootNode.title}`;
+  titleEl.textContent = isGlobal
+    ? `Gantt — Tutti i progetti (${state.currentUser?.username ?? ""})`
+    : `Gantt — ${rootNode.title}`;
 
   const rows = buildVisibleRows();
   const visibleIds = new Set(rows.map((r) => r.node.id));
@@ -223,7 +311,7 @@ function drawToolbar() {
   expandAllBtn.className = "filter-group-btn";
   expandAllBtn.textContent = "Espandi tutto";
   expandAllBtn.onclick = () => {
-    expandedIds = new Set(collectExpandableIds(rootId));
+    expandedIds = new Set(collectExpandableIds(realParentIdOf(rootId)));
     draw();
   };
   toolbarEl.appendChild(expandAllBtn);
@@ -238,6 +326,25 @@ function drawToolbar() {
   toolbarEl.appendChild(collapseAllBtn);
 }
 
+// menu tasto destro sulla riga dell'outline: solo Configurazione e Aggiungi foglia (niente
+// più apertura diretta cliccando sul nome, vedi drawOutline) — "Aggiungi foglia" richiede
+// di essere owner di QUESTO nodo (un ramo delegato visto in sola lettura dal committente
+// resta configurabile in lettura, ma non può accettare nuovi figli)
+function rowContextMenuItems(node, hasChildren, isOwner) {
+  const items = [
+    { label: "Configurazione", onClick: () => openEditModal(node) },
+  ];
+  if (isOwner) {
+    const canAddChild = hasChildren || node.label !== "CHIUSO";
+    items.push({
+      label: "Aggiungi foglia",
+      disabled: !canAddChild,
+      onClick: () => openCreateModal(node.id),
+    });
+  }
+  return items;
+}
+
 function drawOutline(rows, visibleIds) {
   outlineBody.innerHTML = "";
 
@@ -250,6 +357,7 @@ function drawOutline(rows, visibleIds) {
   }
 
   rows.forEach(({ node, depth }) => {
+    const isOwner = node.owner_id === state.currentUser?.id;
     const rowEl = document.createElement("div");
     rowEl.className = "gantt-outline-row";
     rowEl.style.paddingLeft = `${8 + depth * 16}px`;
@@ -285,8 +393,6 @@ function drawOutline(rows, visibleIds) {
     const title = document.createElement("span");
     title.className = "gantt-row-title";
     title.textContent = node.title;
-    title.title = "Apri configurazione";
-    title.onclick = () => openEditModal(node);
     rowEl.appendChild(title);
 
     const externalDeps = (node.dependency_ids || []).filter((id) => !visibleIds.has(id));
@@ -306,6 +412,12 @@ function drawOutline(rows, visibleIds) {
       };
       rowEl.appendChild(badge);
     }
+
+    rowEl.title = "Clic destro: Configurazione / Aggiungi foglia. Clic nella riga a destra: apri configurazione.";
+    rowEl.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      showContextMenu(e.clientX, e.clientY, rowContextMenuItems(node, hasChildren, isOwner));
+    });
 
     outlineBody.appendChild(rowEl);
   });
@@ -345,10 +457,47 @@ function attachHandleDateTooltip(handle, getDateISO) {
   });
   handle.addEventListener("mouseleave", () => {
     if (tooltip) {
-      tooltip.remove();
+      removeDragTooltip(tooltip);
       tooltip = null;
     }
   });
+}
+
+// apre la configurazione al click su barra/etichetta/riga (vedi drawTimeline), tranne se il
+// click è in realtà la coda di un trascinamento appena concluso su una maniglia (vedi
+// isDragJustHappened in timeline.js)
+function openEditModalUnlessDragged(node) {
+  if (isDragJustHappened()) return;
+  openEditModal(node);
+}
+
+// se un tratto verticale calcolato cade troppo vicino alla linea "oggi" (stessa X, la linea
+// occupa tutta l'altezza del Gantt: una qualunque coincidenza in X è una sovrapposizione
+// visiva completa, indipendentemente dal tratto Y del segmento), lo scosta del margine
+// minimo dal lato in cui già si trova
+function keepAwayFromTodayLine(x, todayOffset) {
+  if (todayOffset === null || Math.abs(x - todayOffset) >= DEP_ARROW_TODAY_MARGIN) return x;
+  return x <= todayOffset ? todayOffset - DEP_ARROW_TODAY_MARGIN : todayOffset + DEP_ARROW_TODAY_MARGIN;
+}
+
+function drawSummaryChart(buckets, totalWidth) {
+  timelineChartInner.innerHTML = "";
+  outlineChartSpacer.innerHTML = "";
+  timelineChartInner.style.width = `${totalWidth}px`;
+
+  const series = buildLeafSeries(summaryLeaves, buckets);
+  const maxY = computeMaxY([{ values: series }]);
+
+  // buildAxisLabels presuppone di stare in un contenitore flex che gli dia altezza (come
+  // .workload-chart-axis nella vista Carico di lavoro): qui #gantt-outline-chart-spacer non
+  // è un flex-parent, quindi senza un'altezza esplicita le etichette (posizionate in
+  // percentuale) collassavano tutte a top:0, illeggibili una sopra l'altra
+  const axisLabels = buildAxisLabels(maxY);
+  axisLabels.style.height = "100%";
+  outlineChartSpacer.appendChild(axisLabels);
+  timelineChartInner.appendChild(
+    buildChartSvg(buckets, totalWidth, [{ values: series, className: "workload-chart-global-line" }], maxY)
+  );
 }
 
 function drawTimeline(rows, visibleIds) {
@@ -364,6 +513,8 @@ function drawTimeline(rows, visibleIds) {
   timelineHeader.style.width = `${totalWidth}px`;
   timelineInner.style.width = `${totalWidth}px`;
   timelineInner.style.height = `${totalHeight}px`;
+
+  drawSummaryChart(buckets, totalWidth);
 
   // fascia superiore (settimane/mesi/anni raggruppati): per "anno" (vista "Globale") non
   // c'è raggruppamento, ma la fascia resta comunque presente (vuota, grigia) invece di
@@ -431,6 +582,19 @@ function drawTimeline(rows, visibleIds) {
     timelineInner.appendChild(rowLine);
   });
 
+  // area cliccabile a piena larghezza per ogni riga (dietro a barra/maniglie, vedi sotto):
+  // apre la configurazione cliccando in un punto qualunque della riga, anche dove non c'è
+  // una barra (task senza date) o a fianco di essa
+  rows.forEach((row, i) => {
+    const hitbox = document.createElement("div");
+    hitbox.className = "gantt-row-hitbox";
+    hitbox.style.top = `${i * ROW_HEIGHT}px`;
+    hitbox.style.width = `${totalWidth}px`;
+    hitbox.style.height = `${ROW_HEIGHT}px`;
+    hitbox.onclick = () => openEditModalUnlessDragged(row.node);
+    timelineInner.appendChild(hitbox);
+  });
+
   const todayOffset = todayLineOffset(buckets);
   if (todayOffset !== null) {
     const todayLine = document.createElement("div");
@@ -475,6 +639,7 @@ function drawTimeline(rows, visibleIds) {
   // trascinamento riflette già il nuovo left/width, anche prima che il salvataggio committi)
   function redrawArrows() {
     [...svg.querySelectorAll("path.gantt-dep-arrow")].forEach((p) => p.remove());
+    const todayOffset = todayLineOffset(buckets);
     rows.forEach((row, i) => {
       (row.node.dependency_ids || []).forEach((depId) => {
         if (!visibleIds.has(depId)) return;
@@ -498,7 +663,7 @@ function drawTimeline(rows, visibleIds) {
           // in avanti e si scende/sale, senza passare dallo spazio bianco fra la barra
           // sorgente e quella adiacente — l'ultimo tratto, quello che entra nella punta,
           // resta comunque orizzontale e della stessa lunghezza dell'altro caso
-          const elbowX = tipX - DEP_ARROW_STUB;
+          const elbowX = keepAwayFromTodayLine(tipX - DEP_ARROW_STUB, todayOffset);
           d = `M${sourceRightX},${sourceCenterY} L${elbowX},${sourceCenterY} L${elbowX},${targetCenterY} L${tipX},${targetCenterY}`;
         } else {
           // spazio bianco subito sotto la barra sorgente (sopra, se il dipendente sta più
@@ -507,9 +672,9 @@ function drawTimeline(rows, visibleIds) {
           const gapY = goingDown ? (sourceIdx + 1) * ROW_HEIGHT : sourceIdx * ROW_HEIGHT;
           // due tratti diritti della stessa lunghezza: uno appena usciti dalla barra
           // sorgente (prima di scendere/salire nello spazio bianco), uno appena prima
-          // della punta
-          const stubOutX = sourceRightX + DEP_ARROW_STUB;
-          const elbowX = tipX - DEP_ARROW_STUB;
+          // della punta — entrambi scostati dalla linea "oggi" se ci cadono sopra
+          const stubOutX = keepAwayFromTodayLine(sourceRightX + DEP_ARROW_STUB, todayOffset);
+          const elbowX = keepAwayFromTodayLine(tipX - DEP_ARROW_STUB, todayOffset);
           d =
             `M${sourceRightX},${sourceCenterY} ` +
             `L${stubOutX},${sourceCenterY} ` +
@@ -546,10 +711,22 @@ function drawTimeline(rows, visibleIds) {
     bar.style.top = `${i * ROW_HEIGHT + ROW_HEIGHT * 0.2}px`;
     bar.style.height = `${ROW_HEIGHT * 0.6}px`;
     bar.title = node.title;
+    bar.style.cursor = "pointer";
+    // clic sulla barra stessa (non su una maniglia): apre la configurazione. Il controllo
+    // isDragJustHappened() (vedi openEditModalUnlessDragged) serve perché, se durante il
+    // trascinamento di una maniglia la data si aggancia a un giorno diverso da dove il
+    // mouse viene rilasciato, il cursore può finire sul corpo della barra invece che sulla
+    // maniglia: il click nativo risulterebbe allora su QUESTO listener, non su quello della
+    // maniglia (che da solo non basterebbe a distinguere "ho trascinato" da "ho cliccato")
+    bar.onclick = () => openEditModalUnlessDragged(node);
 
-    // nome del nodo, in nero, a una certa distanza a destra della barra
+    // nome del nodo, in nero, a una certa distanza a destra della barra: sopra all'area
+    // cliccabile della riga (hitbox), quindi serve un click proprio per apire comunque la
+    // configurazione, altrimenti la intercetterebbe senza fare nulla
     const label = document.createElement("div");
     label.className = "gantt-bar-label";
+    label.style.cursor = "pointer";
+    label.onclick = () => openEditModalUnlessDragged(node);
     const labelText = document.createElement("span");
     labelText.textContent = node.title;
     label.appendChild(labelText);
@@ -583,14 +760,15 @@ function drawTimeline(rows, visibleIds) {
           repositionLabel();
           redrawArrows();
         };
-        attachBarHandleDrag(leftHandle, "left", node, buckets, totalWidth, timelineInner, bar, { onDrag });
-        attachBarHandleDrag(rightHandle, "right", node, buckets, totalWidth, timelineInner, bar, { onDrag });
+        const onClick = () => openEditModal(node);
+        attachBarHandleDrag(leftHandle, "left", node, buckets, totalWidth, timelineInner, bar, { onDrag, onClick });
+        attachBarHandleDrag(rightHandle, "right", node, buckets, totalWidth, timelineInner, bar, { onDrag, onClick });
 
         const centerHandle = document.createElement("div");
         centerHandle.className = "calendar-bar-handle center";
-        centerHandle.title = "Trascina per spostare l'intera barra";
+        centerHandle.title = "Trascina per spostare l'intera barra, clic per aprire la configurazione";
         bar.appendChild(centerHandle);
-        attachBarMoveDrag(centerHandle, node, buckets, totalWidth, timelineInner, bar, { onDrag });
+        attachBarMoveDrag(centerHandle, node, buckets, totalWidth, timelineInner, bar, { onDrag, onClick });
       } else if (DRAGGABLE_GRANULARITIES.has(granularity) && !isOwner) {
         // se il nodo è visibile qui ma non è dell'owner corrente, è per forza perché il
         // viewer ne è il committente (GET /tasks non restituirebbe righe altrui altrimenti)
@@ -612,4 +790,5 @@ function drawTimeline(rows, visibleIds) {
   }
   timelineHeaderScroll.scrollLeft = timelineScroll.scrollLeft;
   timelineSuperHeaderScroll.scrollLeft = timelineScroll.scrollLeft;
+  timelineChartScroll.scrollLeft = timelineScroll.scrollLeft;
 }
