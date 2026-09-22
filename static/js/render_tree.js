@@ -293,6 +293,14 @@ function renderNode(node, searchText, tasksById) {
     state.selectedNoteNodeId = node.id;
     rerender();
   };
+
+  // solo i nodi radice possono avere un codice progetto (mai i discendenti, vedi CHECK in
+  // init_db.py): un colpo d'occhio in più per distinguere un progetto "ufficiale" senza
+  // dover aprire la Configurazione o passare dal filtro Con codice/Senza codice di Foglie
+  if (node.parent_id === null && node.project_code) {
+    row.appendChild(makeBadge("🎖️", `Codice progetto: ${node.project_code}`));
+  }
+
   row.appendChild(title);
 
   if (missingEstimateOnCodedProject(node, tasksById)) {

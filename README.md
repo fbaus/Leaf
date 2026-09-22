@@ -75,7 +75,7 @@ Tutto il resto dell'app discende da queste regole:
 
 Tre viste principali, nella barra in alto:
 
-- **Albero** — la vista gerarchica completa: espandi/collassa i rami, trascina un nodo per spostarlo, apri le Note di ciascun nodo nel pannello laterale.
+- **Albero** — la vista gerarchica completa: espandi/collassa i rami (anche tutti insieme, con "Espandi tutto"/"Collassa tutto"), trascina un nodo per spostarlo, cerca per titolo o descrizione (espande automaticamente i rami con un risultato dentro), apri le Note di ciascun nodo nel pannello laterale.
 - **Foglie** — una tabella piatta di tutte le foglie (mai i rami), ordinabile per colonna e filtrabile per progetto e per stato con i pulsanti rapidi in alto: **FOCUS** (solo il task in focus), **OPERATIVE** (Attivo, In ritardo, Bloccato, Dipendente), **PROGRAMMATE** (Pianificato, Dipendente, Delegato), **APERTE** (tutti gli stati non chiusi), **DA VALUTARE** (Quarantena), **TUTTE**.
 - **Carico di lavoro** — per ogni utente registrato, l'elenco dei task delegati a lui (o dei propri progetti con codice) con il carico di lavoro odierno aggregato — utile prima di assegnare un nuovo task a un collega.
 
@@ -122,7 +122,7 @@ Ogni foglia può avere un tempo stimato (giorni + ore, convertiti internamente i
 
 ### Codice progetto
 
-Solo su un nodo radice, e solo per gli utenti autorizzati (vedi `grant-project-code` più sotto), è possibile assegnare un codice progetto nel formato `NNN-20AA` — unico in tutta l'applicazione, anche fra utenti diversi. In Vista Foglie i progetti si possono filtrare per "Con codice"/"Senza codice".
+Solo su un nodo radice, e solo per gli utenti autorizzati (vedi `grant-project-code` più sotto), è possibile assegnare un codice progetto nel formato `NNN-20AA` — unico in tutta l'applicazione, anche fra utenti diversi. Un nodo radice con codice progetto è riconoscibile a colpo d'occhio in Vista Albero dal simbolo 🎖️ accanto al titolo; in Vista Foglie i progetti si possono anche filtrare per "Con codice"/"Senza codice".
 
 ### Focus
 
@@ -156,7 +156,7 @@ Finché la delega è attiva e aperta, il committente non vede la progressione in
 
 ### Notifiche
 
-Oltre al 🤝 di delega/completamento (mai temporaneo: resta finché non arriva una vera decisione), esistono avvisi temporanei che si spengono da soli aprendo la Configurazione del nodo: la riga gialla/badge 📅 di un task appena diventato Attivo, il badge ⏰ di una deadline superata, e il colore del titolo quando l'esecutore sposta la deadline di un task delegato. Dal menu contestuale della propria radice in Vista Albero, "Resetta tutte le notifiche" le spegne tutte in blocco.
+Il badge ⏰ (deadline superata) e, solo in Vista Foglie, ⚠️ (deadline entro 7 giorni) sono indicatori "live": riflettono semplicemente la data odierna, senza bisogno di essere confermati — spariscono da soli spostando la deadline o chiudendo il task. Sono invece notifiche temporanee, che si spengono aprendo la Configurazione del nodo (non riaprendosi finché la causa non si ripresenta davvero): la riga gialla/badge 📅 di un task appena diventato Attivo, il colore del titolo quando l'esecutore sposta la deadline di un task delegato, e il 🤝 di delega/completamento in attesa (quest'ultimo però richiede una vera decisione — accetta/rifiuta, conferma/rifiuta completamento — non basta averlo visto). Dal menu contestuale della propria radice in Vista Albero, "Resetta tutte le notifiche" spegne in blocco escalation e avvisi di delega ancora accesi.
 
 ### Tema chiaro/scuro
 
