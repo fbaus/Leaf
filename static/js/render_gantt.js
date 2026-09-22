@@ -620,6 +620,57 @@ function drawTimeline(rows, visibleIds) {
     timelineInner.appendChild(rowLine);
   });
 
+  // rettangolo-bracket per ogni ramo espanso: solo bordo, esattamente dello stesso colore
+  // della sua barra (azzurro/grigio, vedi sopra), a racchiudere la barra del ramo stesso più
+  // quelle di TUTTI i suoi discendenti visibili (non solo i figli diretti) — aiuta a capire
+  // a colpo d'occhio quali barre appartengono allo stesso ramo in alberi con molti livelli.
+  // Stessa individuazione dei discendenti contigui delle guide line verticali dell'outline
+  // (vedi drawOutline)
+  rows.forEach((row, i) => {
+    const { node, depth } = row;
+    if (node.children_count === 0 || !expandedIds.has(node.id)) return;
+    let lastDescendant = i;
+    while (lastDescendant + 1 < rows.length && rows[lastDescendant + 1].depth > depth) {
+      lastDescendant++;
+    }
+    if (lastDescendant === i) return;
+
+    let left = Infinity;
+    let right = -Infinity;
+    for (let j = i + 1; j <= lastDescendant; j++) {
+      const range = barRangeForNode(rows[j].node, buckets);
+      if (!range) continue;
+      left = Math.min(left, range.left);
+      right = Math.max(right, range.left + range.width);
+    }
+    // include anche la barra del ramo stesso (il rettangolo la racchiude, vedi sotto): di
+    // norma coincide già con l'inviluppo dei figli grazie al rollup automatico delle date
+    // (vedi app.py), ma non è garantito che sia sempre identico
+    const ownRange = barRangeForNode(node, buckets);
+    if (ownRange) {
+      left = Math.min(left, ownRange.left);
+      right = Math.max(right, ownRange.left + ownRange.width);
+    }
+    if (left === Infinity) return; // nessun discendente con date impostate
+
+    // il lato superiore passa appena sopra la barra del ramo (la racchiude, invece di
+    // partire da sotto di essa): stessa geometria riga/barra della resa barre più sotto
+    // (top=i*ROW_HEIGHT+ROW_HEIGHT*0.2)
+    const parentBarTop = i * ROW_HEIGHT + ROW_HEIGHT * 0.2;
+    const GAP = 3;
+    const top = parentBarTop - GAP;
+    const bottom = (lastDescendant + 1) * ROW_HEIGHT - 2;
+
+    const bracket = document.createElement("div");
+    bracket.className = "gantt-branch-bracket";
+    bracket.style.left = `${left - 4}px`;
+    bracket.style.width = `${right - left + 8}px`;
+    bracket.style.top = `${top}px`;
+    bracket.style.height = `${bottom - top}px`;
+    bracket.style.borderColor = isBranchClosed(node.id) ? GANTT_BRANCH_CLOSED_COLOR : GANTT_BRANCH_COLOR;
+    timelineInner.appendChild(bracket);
+  });
+
   // area cliccabile a piena larghezza per ogni riga (dietro a barra/maniglie, vedi sotto):
   // apre la configurazione cliccando in un punto qualunque della riga, anche dove non c'è
   // una barra (task senza date) o a fianco di essa

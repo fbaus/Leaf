@@ -959,6 +959,16 @@ td.leaf-title-cell:hover {
   opacity: 0.85;
 }
 
+/* rettangolo vuoto (solo bordo) che nel Gantt racchiude le barre dei discendenti di un
+   ramo espanso — vedi render_gantt.js, drawTimeline */
+.gantt-branch-bracket {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.5px solid;
+  border-radius: 8px; /* stessa curvatura di .calendar-bar */
+  pointer-events: none;
+}
+
 /* blocco della vista Pianificazione: colore dedicato (non uno status reale) per
    distinguerlo a colpo d'occhio dalle barre EX/DL colorate per stato */
 .planning-block {
