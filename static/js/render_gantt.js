@@ -8,7 +8,7 @@
 // radice insieme, sotto la sentinella ALL_PROJECTS_ROOT (mai un vero id di task).
 
 import { state, reload } from "./state.js";
-import { STATUS_META, isLeaf, dateSortKey } from "./utils.js";
+import { STATUS_META, CLOSED_STATUSES, isLeaf, dateSortKey } from "./utils.js";
 import { openEditModal, openCreateModal } from "./modal.js";
 import { recomputeRollup, fetchCaricoLeaves } from "./api.js";
 import { setDependencyHighlight } from "./deps_highlight.js";
@@ -48,6 +48,9 @@ const SUPER_HEADER_HEIGHT = 20; // fascia settimane/mesi/anni sopra l'intestazio
 // computeParticipatingIndicators più sotto
 const DEP_ARROW_COLOR = "#d32f2f";
 const GANTT_BRANCH_COLOR = "#4fc3f7";
+// ramo con tutte le foglie discendenti chiuse (vedi isBranchClosed più sotto): grigio,
+// per distinguerlo a colpo d'occhio dai rami ancora aperti (azzurri)
+const GANTT_BRANCH_CLOSED_COLOR = "#9e9e9e";
 // tratto diritto, della stessa lunghezza, sia subito dopo l'uscita dalla barra sorgente
 // sia subito prima della punta (che si ferma un po' prima della barra dipendente, senza entrarci)
 const DEP_ARROW_STUB = 14;
@@ -249,6 +252,18 @@ function collectExpandableIds(nodeId) {
     .filter((t) => t.parent_id === nodeId && t.children_count > 0)
     .forEach((child) => ids.push(...collectExpandableIds(child.id)));
   return ids;
+}
+
+// vero se OGNI foglia discendente di questo ramo ha uno status chiuso (CLOSED_STATUSES in
+// utils.js: COMPLETATO, INTERROTTO, QUARANTENA) — usato per colorare di grigio la barra del
+// ramo nel Gantt (vedi GANTT_BRANCH_CLOSED_COLOR). Stessa logica ricorsiva di
+// collectExpandableIds, sulla lista piatta state.tasks
+function isBranchClosed(nodeId) {
+  const children = state.tasks.filter((t) => t.parent_id === nodeId);
+  if (children.length === 0) return false;
+  return children.every((child) =>
+    child.children_count > 0 ? isBranchClosed(child.id) : CLOSED_STATUSES.has(child.status)
+  );
 }
 
 function branchToggleAllButton(node) {
@@ -840,8 +855,13 @@ function drawTimeline(rows, visibleIds) {
     bar.className = "calendar-bar";
     const meta = STATUS_META[node.status];
     // un ramo non ha uno status (è il rollup dei figli): azzurro, per distinguerlo a
-    // colpo d'occhio da tutti gli status reali delle foglie
-    bar.style.background = meta ? meta.color : GANTT_BRANCH_COLOR;
+    // colpo d'occhio da tutti gli status reali delle foglie — grigio invece se tutte le
+    // sue foglie discendenti sono chiuse (vedi isBranchClosed)
+    bar.style.background = meta
+      ? meta.color
+      : isBranchClosed(node.id)
+        ? GANTT_BRANCH_CLOSED_COLOR
+        : GANTT_BRANCH_COLOR;
     bar.style.left = `${range.left + 1}px`;
     bar.style.width = `${Math.max(range.width - 2, 4)}px`;
     bar.style.top = `${i * ROW_HEIGHT + ROW_HEIGHT * 0.2}px`;
