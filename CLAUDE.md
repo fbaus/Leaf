@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Leaf is a personal task-tree manager: tasks form a tree (project → sub-tasks → ...), only leaf nodes (no children) are "workable" and carry a `status`, and each node can have dated notes. Single-user, local Flask + vanilla JS app, no build step, no test suite.
+Leaf is a task-tree manager: tasks form a tree (project → sub-tasks → ...), only leaf nodes (no children) are "workable" and carry a `status`, and each node can have dated notes. Local Flask + vanilla JS app, no build step, no test suite. Multi-user (session-based login, see `users` table in `init_db.py`): each user owns their own tree, but a leaf can be **delegated** to another user, who becomes its `executor` while the original owner becomes its `committente` — see the delegation lifecycle under Domain rules.
 
 ## Commands
 
@@ -14,17 +14,22 @@ Leaf is a personal task-tree manager: tasks form a tree (project → sub-tasks �
 
 ## Architecture
 
-**Backend** (`app.py`, single file, no ORM): plain Flask routes, raw SQL via the helpers in `database/db.py` (`query_db`, `query_one`, `execute_db`, `execute_transaction`). `config.py` is the single source of truth for the SQLite file path (`DB_PATH`), overridable with the `LEAF_DB_PATH` env var (e.g. to move the `.db` file to a synced cloud folder) — both `app.py`'s DB layer and `init_db.py` import it from there.
+**Backend** (`app.py`, single file, no ORM): plain Flask routes, raw SQL via the helpers in `database/db.py` (`query_db`, `query_one`, `execute_db`, `execute_transaction`). `config.py` is the single source of truth for the SQLite file path (`DB_PATH`), overridable with the `LEAF_DB_PATH` env var (e.g. to move the `.db` file to a synced cloud folder) — both `app.py`'s DB layer and `init_db.py` import it from there. Auth is a plain session cookie (`session["user_id"]`, set by `/login`): `@app.before_request` (`require_login`) rejects every endpoint not in `PUBLIC_ENDPOINTS` with 401 unless a session exists. `require_owned_task`/`require_visible_task` are the two ownership gates reused across most routes.
 
 **Frontend** (`static/js/`): no framework, no bundler — native ES modules loaded via `<script type="module">` in `templates/index.html`. Key modules:
 - `state.js` — single mutable `state` object plus `onRender`/`rerender`/`reload` (reload refetches `/tasks` then rerenders).
 - `api.js` — thin fetch wrappers, all HTTP calls to the Flask backend live here.
 - `utils.js` — pure helpers shared by every view: tree building from the flat task list, sorting, `STATUS_META` (symbol/color/**display label** per status), badge DOM builders.
+- `login.js` — the login overlay (same pattern as `modal.js`).
+- `main.js` — wires up the toolbar/login and dispatches rendering based on `state.currentView` (`"albero"`, `"foglie"`, `"carico"`; Gantt/Calendario/Pianificazione are overlays on top of these, not separate views).
 - `render_tree.js` — the ALBERO view (hierarchical tree: expand/collapse, per-branch expand-all, focus toggle, note button, vertical hierarchy guide lines).
 - `render_notes.js` — the notes side panel (compose box + one editable box per day), rendered inside the Albero view. There is no separate "Note" view/tab.
 - `render_leaves.js` — the FOGLIE view: a flat, sortable, filterable table of leaf nodes only, with fixed percentage-based column widths (`table-layout: fixed`, no text wrapping — see gotchas).
-- `modal.js` — the single create/edit modal shared by every view.
-- `main.js` — wires up the toolbar and dispatches rendering based on `state.currentView` (only `"albero"` and `"foglie"` exist; a Nodi view and a standalone Note view existed earlier and were removed/merged).
+- `render_workload.js` / `render_workload_chart.js` — the CARICO DI LAVORO view (per-user delegated-task summary) and its historical-load chart, reused by the Gantt summary chart too.
+- `render_calendar.js` / `render_planning.js` — the Calendario overlay on FOGLIE (draggable EX→DL bars on a timeline) and the Pianificazione overlay (disposable 15-minute-block day planner), both built on the bucket/drag infrastructure in `timeline.js`.
+- `render_gantt.js` — the Gantt overlay (per-node subtree as bars on a shared timeline, reusing `timeline.js`'s drag logic). Dependency arrows are never all shown at once (would be unreadable): each bar gets small always-visible orange indicator triangles (incoming dependency on the left, outgoing on the right) whose colors are plain CSS in `style.css` (`.gantt-dep-arrow`, `.gantt-dep-indicator-*`, ~line 2074) — clicking one toggles the full routed arrow(s) for that direction, drawn/colored red.
+- `modal.js` — the single create/edit modal shared by every view; also hosts the delegation/completion-confirmation UI (see Domain rules).
+- `deps_highlight.js` / `navigate.js` / `context_menu.js` / `confirm_dialog.js` / `checklist.js` / `focus.js` / `note_links.js` / `settings.js` — smaller shared pieces: dependency-highlight toggle, "jump to tree + expand ancestors + highlight" navigation, the generic right-click menu, a generic HTML-capable confirm dialog, per-leaf checklists, focus-preservation across a rerender, `[testo](percorso)`-style note links, and the light/dark theme preference (`localStorage`, per-browser not per-account).
 
 ## Domain rules (enforced in `app.py`, must stay consistent with the frontend)
 
@@ -36,9 +41,11 @@ Leaf is a personal task-tree manager: tasks form a tree (project → sub-tasks �
 - Setting a status in `FOCUS_INCOMPATIBLE_STATUSES` clears `focus` if it was set.
 - `reminder`/`expired` are never stored — always computed on read via `REMINDER_EXPIRED_SQL` (see gotcha below).
 - Notes are stored one row per `(task_id, note_date)`: adding a note on a day that already has one appends to it (`INSERT ... ON CONFLICT DO UPDATE`) rather than creating a new row.
+- **Delegation lifecycle** (leaves only): owner delegates a leaf to another user (`/tasks/<id>/delegate`) → the leaf gets `executor_user_id` (delegate) and `committente_user_id` (original owner), `delegation_status='in_attesa'` until the executor accepts/declines. Once accepted, the executor works the leaf as if it were their own; only a superuser (`current_user_is_superuser()`) may delete a delegated task, never the executor. When the executor closes it as ✔ Completato, `update_task` sets `completion_pending=1` instead of a plain close — the committente must `/confirm-completion` (final) or `/reject-completion` (reopens it as APERTO) before it's truly done; a task with `completion_pending` cleared after having been delegated is no longer editable by the executor except its open/closed state. The 🤝 badge (`render_tree.js`/`render_leaves.js`) is intentionally conditional, not "always shown while delegated": only while `delegation_status==='in_attesa'` or `completion_pending`, i.e. only when a decision is actually pending.
 
 ## Gotchas
 
 - **Never make `reminder`/`expired` SQLite `GENERATED` columns.** SQLite rejects non-deterministic functions like `date('now')` in generated-column expressions at write time (`sqlite3.OperationalError: non-deterministic use of date()`) — this was tried and reverted. They must be computed per-query, as done in `REMINDER_EXPIRED_SQL`.
 - **`ALTER TABLE ... RENAME TO`** causes SQLite to silently rewrite foreign-key references in *other* tables' stored schema to point at the new name. A migration that rebuilds `tasks` (rename → create → copy → drop) without also rebuilding `notes` leaves `notes.task_id` referencing a table that no longer exists, silently breaking every insert. Any future schema migration touching a table that others reference by FK must rebuild all of them together.
 - The FOGLIE table relies on `table-layout: fixed` with percentage `<col>` widths (see `render_leaves.js`/`style.css`) so columns stay identical regardless of the active project filter and cells never wrap (`white-space: nowrap` + ellipsis). Don't reintroduce content-based column sizing there.
+- Status/badge/dependency-arrow colors (`STATUS_META` in `utils.js`, `.gantt-dep-arrow`/`.gantt-dep-indicator-*` in `style.css`) are deliberately **fixed hex values, not theme CSS variables** — unlike the "chrome" colors (`--color-bg`, `--color-text`, etc., themed in `style.css` under `:root`/`prefers-color-scheme: dark`/`[data-theme]`). They're chosen once to be readable on both a white and a near-black background, and kept identical across themes so a color a user has learned to associate with a status/state doesn't shift when they switch theme.
