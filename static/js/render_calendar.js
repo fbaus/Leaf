@@ -16,10 +16,104 @@ import {
   endExclusiveDrag,
 } from "./timeline.js";
 import { renderPlanningInner, refreshPlanningBlocks } from "./render_planning.js";
+import { buildLeafSeries, computeMaxY, buildChartSvg, buildAxisLabels } from "./render_workload_chart.js";
+import { fetchLeavesCarico } from "./api.js";
 
 const TOOLBAR_HEIGHT = 30; // deve combaciare con l'altezza fissata in .calendar-toolbar (style.css)
 const PROXY_HEIGHT = 14; // deve combaciare con .calendar-scrollbar-proxy (style.css)
 const SUPER_HEADER_HEIGHT = 20; // fascia settimane/mesi/anni (o giorni, in Pianificazione) sopra l'intestazione normale
+// più basso dei 90px del grafico "carico complessivo" nel Gantt (che vive in un template suo,
+// libero di essere alto quanto serve): qui invece lo spazio sopra la <table> FOGLIE è reale,
+// preso in prestito dal margin-bottom della barra filtri (vedi renderFilterBar in
+// render_leaves.js) — va tenuto contenuto. Esportato perché render_leaves.js deve riservargli
+// davvero quello spazio (altrimenti il grafico, per quanto ben calcolato qui, si
+// sovrapporrebbe alle prime barre reali sotto — un overlay non può "spingere giù" la vera
+// tabella sotto di sé, che non sa nulla di lui)
+export const CHART_ROW_HEIGHT = 64; // deve combaciare con .calendar-chart-scroll (style.css)
+
+// stessa condizione usata più sotto in renderCalendarOverlay per costruire la riga del
+// grafico: esportata perché render_leaves.js deve riservargli lo spazio reale sopra la
+// <table> (vedi renderFilterBar) PRIMA che renderCalendarOverlay stessa giri — deve restare
+// l'unico posto dove questa condizione è scritta, non duplicata fra i due file
+export function isWorkloadChartVisible() {
+  return state.calendarOpen && state.calendarMode === "timeline";
+}
+
+// ---------------------------------------------------------------------------
+// Carico di lavoro (grafico sopra la vista timeline, del tutto analogo al "carico
+// complessivo" della Vista Gantt — vedi drawSummaryChart in render_gantt.js): le foglie con
+// `value` già calcolato dal backend (mai duplicare la formula del carico in JS, vedi
+// commento su /leaves-carico in app.py), per la somma esatta delle foglie ATTUALMENTE
+// VISUALIZZATE in Vista Foglie col filtro selezionato — un elenco piatto già filtrato lato
+// client, non un sottoalbero. Ricaricato solo quando cambia qualcosa che potrebbe cambiare
+// il risultato (l'insieme di id visualizzati, o uno dei campi da cui dipende la formula del
+// carico su uno di essi — non a ogni rerender): la vista si aggiorna da sé quando la
+// risposta arriva.
+// ---------------------------------------------------------------------------
+
+let workloadLeavesKey = null;
+let workloadLeaves = [];
+
+function refreshWorkloadChartData(leaves) {
+  const sorted = [...leaves].sort((a, b) => a.id - b.id);
+  const key = sorted
+    .map((l) => `${l.id}:${l.execution_date}:${l.deadline}:${l.estimated_days}:${l.status}:${l.label}`)
+    .join("|");
+  if (key === workloadLeavesKey) return;
+  workloadLeavesKey = key;
+  const ids = sorted.map((l) => l.id);
+  if (ids.length === 0) {
+    workloadLeaves = [];
+    return;
+  }
+  fetchLeavesCarico(ids)
+    .then((result) => {
+      workloadLeaves = result;
+      rerender();
+    })
+    .catch(() => {
+      workloadLeaves = [];
+    });
+}
+
+// stessa idea di drawSummaryChart nel Gantt: stessi buckets/stessa larghezza totale della
+// timeline sottostante (bucket-allineato con essa), inserita come riga scorrevole in più
+// nel gruppo di sincronizzazione orizzontale (vedi syncTargets in renderCalendarOverlay).
+// L'asse delle percentuali non ha, qui, una colonna riservata a fianco come nel Gantt
+// (l'outline pane): resta "agganciato" (position: sticky) al bordo sinistro del riquadro
+// scorrevole invece di occupare spazio proprio, sovrapponendosi appena al grafico sotto di
+// sé — stesso principio della prima colonna "congelata" di un foglio di calcolo
+function buildChartRow(buckets, totalWidth) {
+  const chartScroll = document.createElement("div");
+  chartScroll.className = "calendar-chart-scroll";
+
+  const chartInner = document.createElement("div");
+  chartInner.className = "calendar-chart-inner";
+  chartInner.style.width = `${totalWidth}px`;
+
+  const series = buildLeafSeries(workloadLeaves, buckets);
+  const maxY = computeMaxY([{ values: series }]);
+
+  // l'SVG riempie tutto .calendar-chart-inner (posizionato fuori dal flusso, invece che
+  // semplicemente "sotto" le etichette in blocco): le etichette dell'asse, in flusso
+  // normale, vi galleggiano sopra invece di spingerlo più in basso, fuori dall'area visibile
+  // (.calendar-chart-scroll ha overflow-y: hidden)
+  const svg = buildChartSvg(buckets, totalWidth, [{ values: series, className: "workload-chart-global-line" }], maxY);
+  svg.classList.add("calendar-chart-svg-layer");
+  chartInner.appendChild(svg);
+
+  const axisLabels = buildAxisLabels(maxY);
+  axisLabels.classList.add("calendar-chart-axis-labels");
+  // .calendar-chart-inner non è un contenitore flex (a differenza di .workload-chart-axis
+  // nella vista Carico di lavoro): senza un'altezza esplicita le etichette, posizionate in
+  // percentuale, collasserebbero tutte a top:0 (stesso accorgimento del Gantt, vedi
+  // drawSummaryChart in render_gantt.js)
+  axisLabels.style.height = "100%";
+  chartInner.appendChild(axisLabels);
+
+  chartScroll.appendChild(chartInner);
+  return chartScroll;
+}
 
 // ---------------------------------------------------------------------------
 // Corpo della vista "timeline" (barre EX/DL a bucket giorno/settimana/mese/anno):
@@ -185,7 +279,7 @@ function renderTimelineInner(headerInner, inner, leaves, bodyRows, tableRect, ta
   });
 
   const initialScrollLeft = todayIndex >= 0 ? Math.max(bucketOffset(buckets, todayIndex) - 40, 0) : 0;
-  return { totalWidth, initialScrollLeft };
+  return { totalWidth, initialScrollLeft, buckets };
 }
 
 // ---------------------------------------------------------------------------
@@ -195,7 +289,7 @@ function renderTimelineInner(headerInner, inner, leaves, bodyRows, tableRect, ta
 export function renderCalendarOverlay(mainPanel, leaves, opts = {}) {
   const {
     minCol = 1, defaultCol = 2, maxCol = 4,
-    afterCommit, hidePianificazione = false, hideDateSort = false,
+    afterCommit, hidePianificazione = false, hideDateSort = false, hideWorkloadChart = false,
   } = opts;
   const table = mainPanel.querySelector("table.leaves-table");
   if (!table || !table.tHead) return;
@@ -209,6 +303,11 @@ export function renderCalendarOverlay(mainPanel, leaves, opts = {}) {
   const mode = state.calendarMode;
   const granularity = state.calendarGranularity;
   const superHeaderHeight = SUPER_HEADER_HEIGHT;
+  // niente grafico in Pianificazione (lavagna oraria usa-e-getta, scorrelata da EX/DL: il
+  // concetto di "carico % della giornata coperto da EX-DL" non si applica)
+  const showWorkloadChart = !hideWorkloadChart && mode === "timeline";
+  if (showWorkloadChart) refreshWorkloadChartData(leaves);
+  const chartRowHeight = showWorkloadChart ? CHART_ROW_HEIGHT : 0;
 
   const tableRect = table.getBoundingClientRect();
   const theadHeight = table.tHead.getBoundingClientRect().height;
@@ -234,8 +333,8 @@ export function renderCalendarOverlay(mainPanel, leaves, opts = {}) {
   // (sopra c'è la barra filtri): senza questo, la toolbar del calendario (altezza fissa)
   // non combacia con l'altezza reale della barra filtri e .calendar-inner finisce
   // disallineato rispetto alle righe della tabella di qualche pixel
-  overlay.style.top = `${tableRect.top - mainPanelRect.top - TOOLBAR_HEIGHT - superHeaderHeight}px`;
-  overlay.style.height = `${tableHeight + TOOLBAR_HEIGHT + PROXY_HEIGHT + superHeaderHeight}px`;
+  overlay.style.top = `${tableRect.top - mainPanelRect.top - TOOLBAR_HEIGHT - superHeaderHeight - chartRowHeight}px`;
+  overlay.style.height = `${tableHeight + TOOLBAR_HEIGHT + PROXY_HEIGHT + superHeaderHeight + chartRowHeight}px`;
 
   const resizeHandle = document.createElement("div");
   resizeHandle.className = "calendar-resize-handle";
@@ -335,7 +434,7 @@ export function renderCalendarOverlay(mainPanel, leaves, opts = {}) {
   const inner = document.createElement("div");
   inner.className = "calendar-inner";
 
-  const { totalWidth, initialScrollLeft } =
+  const { totalWidth, initialScrollLeft, buckets } =
     mode === "planning"
       ? renderPlanningInner(headerInner, inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, theadHeight)
       : renderTimelineInner(headerInner, inner, leaves, bodyRows, tableRect, tableHeight, superHeaderHeight, granularity, theadHeight, { afterCommit });
@@ -355,6 +454,15 @@ export function renderCalendarOverlay(mainPanel, leaves, opts = {}) {
   headerScroll.appendChild(headerInner);
   overlay.appendChild(headerScroll);
 
+  // sticky anch'esso, agganciato subito sotto la fascia intestazione (stesso principio di
+  // toolbar/headerScroll sopra): altrimenti, scorrendo #main-panel in verticale, finirebbe
+  // nascosto/tagliato sotto di essa invece di restare visibile insieme al resto dell'intestazione
+  const chartScroll = showWorkloadChart ? buildChartRow(buckets, totalWidth) : null;
+  if (chartScroll) {
+    chartScroll.style.top = `${TOOLBAR_HEIGHT + superHeaderHeight + theadHeight}px`;
+    overlay.appendChild(chartScroll);
+  }
+
   scroll.appendChild(inner);
   overlay.appendChild(scroll);
 
@@ -368,10 +476,10 @@ export function renderCalendarOverlay(mainPanel, leaves, opts = {}) {
   proxySpacer.style.width = `${totalWidth}px`;
   proxy.appendChild(proxySpacer);
 
-  // scorrimento orizzontale sincronizzato fra i tre elementi (fascia intestazione sticky,
-  // corpo, scrollbar "proxy" in fondo): qualunque dei tre può iniziare lo scroll (drag
-  // diretto sul corpo, o sulla proxy), gli altri due si allineano di conseguenza
-  const syncTargets = [headerScroll, scroll, proxy];
+  // scorrimento orizzontale sincronizzato fra tutti gli elementi (fascia intestazione
+  // sticky, grafico del carico se presente, corpo, scrollbar "proxy" in fondo): qualunque
+  // può iniziare lo scroll (drag diretto sul corpo, o sulla proxy), gli altri si allineano
+  const syncTargets = chartScroll ? [headerScroll, chartScroll, scroll, proxy] : [headerScroll, scroll, proxy];
   let syncing = false;
   syncTargets.forEach((el) => {
     el.addEventListener("scroll", () => {
@@ -389,4 +497,5 @@ export function renderCalendarOverlay(mainPanel, leaves, opts = {}) {
 
   scroll.scrollLeft = initialScrollLeft;
   headerScroll.scrollLeft = initialScrollLeft;
+  if (chartScroll) chartScroll.scrollLeft = initialScrollLeft;
 }

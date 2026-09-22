@@ -24,7 +24,7 @@ import { setFocus } from "./api.js";
 import { openEditModal } from "./modal.js";
 import { jumpToTree } from "./navigate.js";
 import { toggleDependencyHighlight } from "./deps_highlight.js";
-import { renderCalendarOverlay } from "./render_calendar.js";
+import { renderCalendarOverlay, CHART_ROW_HEIGHT, isWorkloadChartVisible } from "./render_calendar.js";
 import { showContextMenu } from "./context_menu.js";
 
 function getRootNodes(tasks) {
@@ -65,6 +65,15 @@ function renderFilterBar(mainPanel) {
   // esattamente sotto a questa barra: la sua altezza reale (non fissa, i bottoni possono
   // andare a capo) va misurata qui, non indovinata in CSS
   mainPanel.style.setProperty("--filter-bar-height", `${bar.getBoundingClientRect().height}px`);
+
+  // col grafico del carico di lavoro visibile (vedi CHART_ROW_HEIGHT/isWorkloadChartVisible
+  // in render_calendar.js), la <table> reale sotto va spinta più in basso di quel tanto in
+  // più: l'overlay del calendario è solo disegnato SOPRA la pagina, non può spingere giù la
+  // tabella vera da sé — senza questo margine aggiuntivo il grafico si sovrapporrebbe alle
+  // prime barre reali sotto di esso invece di stare nello spazio riservato sopra di loro
+  bar.style.marginBottom = isWorkloadChartVisible()
+    ? `${parseFloat(getComputedStyle(bar).marginBottom) + CHART_ROW_HEIGHT}px`
+    : "";
 }
 
 // percentuali (sommano a 100):

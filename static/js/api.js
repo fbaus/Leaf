@@ -46,6 +46,13 @@ export function fetchCaricoLeaves(id) {
   return fetch(`/tasks/${id}/carico-leaves`).then(handle);
 }
 
+// carico delle foglie passate per id (già appiattite e filtrate lato client, vedi
+// render_leaves.js/render_calendar.js): a differenza di fetchCaricoLeaves non cammina un
+// sottoalbero da un id radice
+export function fetchLeavesCarico(ids) {
+  return postJson("/leaves-carico", "POST", { ids });
+}
+
 export function moveTask(id, parentId) {
   return postJson(`/tasks/${id}/parent`, "PATCH", { parent_id: parentId });
 }

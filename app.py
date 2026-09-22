@@ -918,15 +918,12 @@ def recompute_rollup(task_id):
     return {"status": "ok"}
 
 
-# usata dal grafico "carico complessivo" in cima alla Vista Gantt (render_gantt.js): riusa
-# collect_active_leaves (stessa funzione della Vista Carico di lavoro) invece di duplicare
-# in JS la formula del carico — già corretta due volte in questa sessione, va tenuta in un
-# solo posto. Owner-gated come "Vista Gantt" stessa (mai proposta al committente).
-@app.route("/tasks/<int:task_id>/carico-leaves", methods=["GET"])
-def get_carico_leaves(task_id):
-    if require_owned_task(task_id) is None:
-        return {"error": "Task non trovato"}, 404
-
+# preambolo condiviso da get_carico_leaves e get_leaves_carico: tutti i task visibili
+# all'utente corrente (come owner o come committente) con lo status "live" ricalcolato
+# (dipendenze comprese) esattamente come in GET /tasks — la colonna status in tabella può
+# essere superata da un cambiamento altrove nel grafo delle dipendenze, mai aggiornata da
+# una semplice lettura, quindi va sempre ricalcolata qui, non letta as-is dal db
+def _owned_tasks_status_context():
     tasks = query_db(
         "SELECT t.*, (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = t.id) AS children_count "
         "FROM tasks t WHERE t.owner_id = ? OR t.committente_user_id = ?",
@@ -956,7 +953,53 @@ def get_carico_leaves(task_id):
                 is_delegated_internally=t["executor_user_id"] is not None,
             )
 
+    return tasks_by_id, children_by_parent
+
+
+# usata dal grafico "carico complessivo" in cima alla Vista Gantt (render_gantt.js): riusa
+# collect_active_leaves (stessa funzione della Vista Carico di lavoro) invece di duplicare
+# in JS la formula del carico — già corretta due volte in questa sessione, va tenuta in un
+# solo posto. Owner-gated come "Vista Gantt" stessa (mai proposta al committente).
+@app.route("/tasks/<int:task_id>/carico-leaves", methods=["GET"])
+def get_carico_leaves(task_id):
+    if require_owned_task(task_id) is None:
+        return {"error": "Task non trovato"}, 404
+    tasks_by_id, children_by_parent = _owned_tasks_status_context()
     return jsonify(collect_active_leaves(task_id, tasks_by_id, children_by_parent))
+
+
+# usata dal grafico del carico di lavoro sopra la vista Calendario in Vista Foglie
+# (render_leaves.js/render_calendar.js): a differenza di get_carico_leaves non cammina un
+# sottoalbero, riceve direttamente l'elenco (già appiattito e filtrato lato client secondo
+# i filtri di Vista Foglie selezionati) delle foglie attualmente visualizzate, e ne calcola
+# il carico con la stessa formula (_leaf_is_schedulable/_leaf_plateau_value), mai duplicata
+# in JS. Conta solo le foglie di cui l'utente corrente è owner — dopo una delega è
+# l'esecutore (il vero owner_id aggiornato), mai il solo committente: stessa esclusione che
+# collect_active_leaves applica scendendo da un progetto (mai contare due volte, sotto il
+# progetto originale E sotto la propria vista, lo stesso carico delegato altrove)
+@app.route("/leaves-carico", methods=["POST"])
+def get_leaves_carico():
+    data = request.get_json() or {}
+    try:
+        ids = [int(x) for x in (data.get("ids") or [])]
+    except (TypeError, ValueError):
+        return {"error": "ids non valido"}, 400
+    if not ids:
+        return jsonify([])
+
+    tasks_by_id, _ = _owned_tasks_status_context()
+    result = [
+        {
+            "execution_date": t["execution_date"],
+            "deadline": t["deadline"],
+            "value": _leaf_plateau_value(t),
+        }
+        for leaf_id in ids
+        if (t := tasks_by_id.get(leaf_id)) is not None
+        and t["owner_id"] == current_user_id()
+        and _leaf_is_schedulable(t)
+    ]
+    return jsonify(result)
 
 
 # ---------------------------------------------------------------------------

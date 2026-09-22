@@ -871,6 +871,50 @@ td.leaf-title-cell:hover {
   position: relative;
 }
 
+/* riga del carico di lavoro sopra la timeline (render_calendar.js, buildChartRow): stessa
+   idea/stesso sticky di .calendar-header-scroll sopra di essa */
+.calendar-chart-scroll {
+  flex-shrink: 0;
+  position: sticky;
+  z-index: 2;
+  height: 64px; /* deve combaciare con CHART_ROW_HEIGHT in render_calendar.js */
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--color-bg-panel);
+  border-bottom: 1px solid var(--color-border-light);
+  scrollbar-width: none;
+}
+
+.calendar-chart-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.calendar-chart-inner {
+  position: relative;
+  height: 100%;
+}
+
+/* fuori dal flusso normale (vedi buildChartRow): senza, l'SVG finirebbe impilato SOTTO
+   .calendar-chart-axis-labels invece di riempire l'intera riga dietro di essa */
+.calendar-chart-svg-layer {
+  position: absolute;
+  inset: 0;
+}
+
+/* asse delle percentuali (vedi buildChartRow): nessuna colonna riservata come nel Gantt
+   (l'outline pane), resta agganciato al bordo sinistro del riquadro scorrevole invece di
+   occupare spazio proprio — stesso principio della prima colonna "congelata" di un foglio
+   di calcolo, con uno sfondo pieno per restare leggibile sopra la linea del grafico */
+.workload-chart-axis-labels.calendar-chart-axis-labels {
+  position: sticky;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  width: 36px;
+  background: var(--color-bg-panel);
+  border-right: 1px solid var(--color-border-lighter);
+}
+
 .calendar-header-row {
   border-bottom: 1px solid var(--color-border-light);
   white-space: nowrap;
