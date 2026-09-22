@@ -2004,6 +2004,22 @@ td.leaf-title-cell:hover {
   cursor: context-menu;
 }
 
+/* drag & drop di riparenting nell'outline, stessa idea di .tree-row (Albero) — vedi
+   attachDragSource/attachDropTarget in render_gantt.js */
+.gantt-outline-row[draggable="true"] {
+  cursor: grab;
+}
+
+.gantt-outline-row.dragging {
+  opacity: 0.4;
+}
+
+.gantt-outline-row.drop-target {
+  outline: 2px dashed var(--color-accent);
+  background: #e3f2fd;
+  color: #1a1a1a;
+}
+
 .gantt-row-toggle {
   border: none;
   background: none;

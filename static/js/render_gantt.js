@@ -10,7 +10,7 @@
 import { state, reload } from "./state.js";
 import { STATUS_META, CLOSED_STATUSES, isLeaf, dateSortKey } from "./utils.js";
 import { openEditModal, openCreateModal } from "./modal.js";
-import { recomputeRollup, fetchCaricoLeaves } from "./api.js";
+import { recomputeRollup, fetchCaricoLeaves, moveTask } from "./api.js";
 import { setDependencyHighlight } from "./deps_highlight.js";
 import { jumpToTree } from "./navigate.js";
 import { showContextMenu } from "./context_menu.js";
@@ -266,6 +266,74 @@ function isBranchClosed(nodeId) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Drag & drop nell'outline: sposta un nodo (e il suo sottoalbero) su un padre diverso,
+// trascinando la riga per il titolo — stessa funzionalità e stesse regole di
+// render_tree.js (Albero), riscritte sulla lista piatta state.tasks invece che
+// sull'albero già costruito con .children
+// ---------------------------------------------------------------------------
+
+function collectDescendantIds(nodeId) {
+  const ids = [];
+  state.tasks
+    .filter((t) => t.parent_id === nodeId)
+    .forEach((child) => ids.push(child.id, ...collectDescendantIds(child.id)));
+  return ids;
+}
+
+let draggedNode = null;
+let draggedDescendantIds = new Set();
+
+async function performMove(newParentId) {
+  if (draggedNode === null) return;
+  try {
+    await moveTask(draggedNode.id, newParentId);
+    await reload(); // refreshGanttIfOpen (main.js) ridisegna questo stesso Gantt coi dati aggiornati
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function attachDragSource(row, node) {
+  row.draggable = true;
+
+  row.addEventListener("dragstart", (e) => {
+    draggedNode = node;
+    draggedDescendantIds = new Set(collectDescendantIds(node.id));
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(node.id));
+    row.classList.add("dragging");
+  });
+
+  row.addEventListener("dragend", () => {
+    row.classList.remove("dragging");
+    draggedNode = null;
+    draggedDescendantIds = new Set();
+  });
+}
+
+function attachDropTarget(row, node) {
+  row.addEventListener("dragover", (e) => {
+    if (draggedNode === null) return;
+    if (draggedNode.id === node.id || draggedDescendantIds.has(node.id)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    row.classList.add("drop-target");
+  });
+
+  row.addEventListener("dragleave", () => {
+    row.classList.remove("drop-target");
+  });
+
+  row.addEventListener("drop", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    row.classList.remove("drop-target");
+    if (draggedNode === null || draggedNode.id === node.id) return;
+    performMove(node.id);
+  });
+}
+
 function branchToggleAllButton(node) {
   const branchIds = collectExpandableIds(node.id);
   const allExpanded = branchIds.every((id) => expandedIds.has(id));
@@ -400,6 +468,15 @@ function drawOutline(rows, visibleIds) {
     rowEl.className = "gantt-outline-row";
     rowEl.style.paddingLeft = `${8 + depth * 16}px`;
 
+    // stesse due capacità distinte dell'Albero (vedi render_tree.js): "prendere" il nodo per
+    // spostarlo altrove — per un task delegato internamente solo il committente, mai
+    // l'esecutore — e "accettare" un nodo trascinato come figlio, sempre e solo l'owner
+    const canDragOut = node.committente_user_id != null
+      ? node.committente_user_id === state.currentUser?.id
+      : isOwner;
+    if (canDragOut) attachDragSource(rowEl, node);
+    if (isOwner) attachDropTarget(rowEl, node);
+
     const hasChildren = node.children_count > 0;
     if (hasChildren) {
       const toggle = document.createElement("button");
@@ -451,7 +528,9 @@ function drawOutline(rows, visibleIds) {
       rowEl.appendChild(badge);
     }
 
-    rowEl.title = "Clic destro: Configurazione / Aggiungi foglia. Clic nella riga a destra: apri configurazione.";
+    rowEl.title = canDragOut
+      ? "Trascina per spostare sotto un altro nodo. Clic destro: Configurazione / Aggiungi foglia. Clic nella riga a destra: apri configurazione."
+      : "Clic destro: Configurazione / Aggiungi foglia. Clic nella riga a destra: apri configurazione.";
     rowEl.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       showContextMenu(e.clientX, e.clientY, rowContextMenuItems(node, hasChildren, isOwner));
