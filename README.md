@@ -140,7 +140,7 @@ Sulla Configurazione di una foglia, sotto al form principale, si può tenere una
 
 - **📅 Calendario** (in Vista Foglie): sovrappone alla tabella una linea del tempo con le barre EX→DL di ogni foglia visibile, a granularità Settimana/Mese/Anno/Globale; le barre si trascinano per spostare le date.
 - **Pianificazione**: una lavagna oraria personale a blocchi di 15 minuti, scorrelata da EX/DL, pensata per organizzare la giornata — non persistente a lungo termine (il passato viene ripulito automaticamente).
-- **Vista Gantt** (menu contestuale di un ramo): il sottoalbero del nodo in un diagramma di Gantt con le frecce delle dipendenze e un grafico riassuntivo del carico di lavoro.
+- **Vista Gantt** (menu contestuale di un ramo): il sottoalbero del nodo in un diagramma di Gantt con un grafico riassuntivo del carico di lavoro. Le frecce di dipendenza non sono mostrate tutte insieme (diventerebbero presto un groviglio illeggibile): un task con almeno una dipendenza ha una piccola freccia entrante a sinistra della barra, un task da cui dipende almeno un altro ne ha una uscente a destra; cliccando sul triangolino di una di queste frecce si mostrano o nascondono le frecce complete di quella direzione (entrante: tutte le sue dipendenze; uscente: solo i task che dipendono da lui).
 
 ### Delega fra utenti
 

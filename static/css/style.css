@@ -2073,8 +2073,37 @@ td.leaf-title-cell:hover {
 
 .gantt-dep-arrow {
   fill: none;
+  stroke: #d32f2f;
+  stroke-width: 1.5;
+}
+
+.gantt-dep-indicator-stub {
   stroke: #ef6c00;
   stroke-width: 1.5;
+}
+
+.gantt-dep-indicator-triangle {
+  fill: #ef6c00;
+}
+
+.gantt-dep-indicator-hitarea {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.gantt-dep-indicator:hover .gantt-dep-indicator-triangle {
+  fill: #ff9800;
+}
+
+/* estremi della freccia completa attualmente mostrata (vedi
+   computeParticipatingIndicators in render_gantt.js): stesso rosso della freccia, non più
+   arancio, per riconoscere a colpo d'occhio quali indicatori vi partecipano */
+.gantt-dep-indicator.active .gantt-dep-indicator-stub {
+  stroke: #d32f2f;
+}
+
+.gantt-dep-indicator.active .gantt-dep-indicator-triangle {
+  fill: #d32f2f;
 }
 
 .gantt-bar-label {

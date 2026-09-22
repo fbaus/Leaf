@@ -38,7 +38,15 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const ROW_HEIGHT = 28; // deve combaciare con .gantt-outline-row (style.css)
 const HEADER_HEIGHT = 40; // deve combaciare con #gantt-outline-header/#gantt-timeline-header-scroll
 const SUPER_HEADER_HEIGHT = 20; // fascia settimane/mesi/anni sopra l'intestazione normale, 0 se nascosta (vista "Globale")
-const DEP_ARROW_COLOR = "#ef6c00";
+// colore delle sole frecce COMPLETE mostrate su richiesta (vedi toggleDepsSelection):
+// volutamente diverso dall'arancio dei triangolini indicatori (sempre visibili su ogni
+// nodo con dipendenze), così la freccia attualmente "aperta" risalta rispetto agli
+// indicatori statici. Un rosso acceso, leggibile sia su sfondo chiaro che scuro (stesso
+// principio dei colori di stato in STATUS_META, fissi in entrambi i temi — vedi il
+// commento in cima a style.css); anche i triangolini indicatori che partecipano alla
+// freccia mostrata (i suoi due estremi) diventano dello stesso rosso, vedi
+// computeParticipatingIndicators più sotto
+const DEP_ARROW_COLOR = "#d32f2f";
 const GANTT_BRANCH_COLOR = "#4fc3f7";
 // tratto diritto, della stessa lunghezza, sia subito dopo l'uscita dalla barra sorgente
 // sia subito prima della punta (che si ferma un po' prima della barra dipendente, senza entrarci)
@@ -51,6 +59,13 @@ const LABEL_OFFSET = DEP_ARROW_STUB + 16;
 // distanza minima (px) che un tratto verticale di una freccia deve mantenere dalla linea
 // "oggi": altrimenti, sovrapposte, diventano indistinguibili
 const DEP_ARROW_TODAY_MARGIN = 6;
+// piccola freccia indicatrice (entrante a sinistra/uscente a destra di una barra, vedi
+// drawTimeline): niente instradamento, solo un tratto fisso più un pallino cliccabile
+// all'estremità che mostra/nasconde le frecce complete di quella direzione
+const DEP_INDICATOR_STUB = 18;
+const DEP_INDICATOR_TRI_W = 11; // lunghezza del triangolino lungo l'asse x
+const DEP_INDICATOR_TRI_H = 10; // altezza della sua base
+const DEP_INDICATOR_HIT_R = 9; // raggio dell'area cliccabile invisibile centrata sul triangolino
 
 // sentinella per "Gantt di tutti i progetti insieme" (voce del menu sul nodo utente
 // fittizio in Albero): mai un vero id di task, sempre distinta da `null` (che significa
@@ -78,6 +93,12 @@ let rootId = null;
 let granularity = "giorno";
 let expandedIds = new Set();
 let hasScrolledToToday = false;
+// quali frecce di dipendenza COMPLETE mostrare in questo momento (vedi i piccoli
+// indicatori con pallino arancio in drawTimeline): null = nessuna, altrimenti il nodo e la
+// direzione ("in" = tutte le sue dipendenze, "out" = tutti i nodi che dipendono da lui)
+// selezionati cliccando un pallino. Persiste fra un draw() e l'altro (cambio granularità,
+// espandi/collassa) per non dover ricliccare ogni volta; resettato solo aprendo il Gantt
+let activeDepsSelection = null;
 // foglie attive raccolte lato server (vedi collect_active_leaves in app.py) per il
 // grafico "carico complessivo" in cima: caricate on-demand all'apertura/dopo ogni
 // modifica, mai calcolate qui per non duplicare la formula del carico in JS
@@ -95,6 +116,7 @@ export async function openGanttView(node) {
   // scalate di un gradino rispetto alle key storiche, vedi GRANULARITIES in timeline.js)
   granularity = "settimana";
   hasScrolledToToday = false;
+  activeDepsSelection = null;
   try {
     await recomputeRollup(node.id);
     await reload();
@@ -116,6 +138,7 @@ export async function openGanttView(node) {
 export async function openGanttViewForAllProjects() {
   granularity = "settimana";
   hasScrolledToToday = false;
+  activeDepsSelection = null;
   const ownRootIds = state.tasks
     .filter((t) => t.parent_id === null && t.owner_id === state.currentUser?.id)
     .map((t) => t.id);
@@ -635,62 +658,175 @@ function drawTimeline(rows, visibleIds) {
   const rowIndexById = new Map();
   rows.forEach((row, i) => rowIndexById.set(row.node.id, i));
 
-  // ricalcola tutte le frecce leggendo la posizione CORRENTE delle barre (che durante un
-  // trascinamento riflette già il nuovo left/width, anche prima che il salvataggio committi)
+  // nodeId -> elenco dei nodi (fra quelli visibili) che dipendono da lui: serve sia per
+  // decidere se disegnare l'indicatore "uscente" a destra della sua barra, sia — quando
+  // quell'indicatore viene attivato — per sapere verso quali barre tracciare le frecce
+  const dependentsOf = new Map();
+  rows.forEach(({ node }) => {
+    (node.dependency_ids || []).forEach((depId) => {
+      if (!visibleIds.has(depId)) return;
+      if (!dependentsOf.has(depId)) dependentsOf.set(depId, []);
+      dependentsOf.get(depId).push(node);
+    });
+  });
+
+  // disegna la freccia completa (instradamento a gomito) da un nodo sorgente a uno di
+  // destinazione, leggendo la posizione CORRENTE delle barre (che durante un trascinamento
+  // riflette già il nuovo left/width, anche prima che il salvataggio committi)
+  function drawArrow(sourceId, targetId, todayOffset) {
+    const sourceIdx = rowIndexById.get(sourceId);
+    const targetIdx = rowIndexById.get(targetId);
+    const sourceBar = barElements.get(sourceId);
+    const targetBar = barElements.get(targetId);
+    if (sourceIdx === undefined || targetIdx === undefined || !sourceBar || !targetBar) return;
+
+    const sourceCenterY = sourceIdx * ROW_HEIGHT + ROW_HEIGHT / 2;
+    const targetCenterY = targetIdx * ROW_HEIGHT + ROW_HEIGHT / 2;
+    const sourceRightX = parseFloat(sourceBar.style.left) + parseFloat(sourceBar.style.width);
+    const targetLeftX = parseFloat(targetBar.style.left);
+    const tipX = targetLeftX - DEP_ARROW_TIP_GAP; // la punta si ferma prima della barra, senza entrarci
+
+    let d;
+    if (tipX - DEP_ARROW_STUB >= sourceRightX) {
+      // c'è abbastanza spazio in avanti da percorrere anche l'intero tratto
+      // orizzontale di entrata (DL della dipendenza < EX del dipendente meno la
+      // lunghezza di quel tratto): non c'è bisogno di tornare indietro, si va dritti
+      // in avanti e si scende/sale, senza passare dallo spazio bianco fra la barra
+      // sorgente e quella adiacente — l'ultimo tratto, quello che entra nella punta,
+      // resta comunque orizzontale e della stessa lunghezza dell'altro caso
+      const elbowX = keepAwayFromTodayLine(tipX - DEP_ARROW_STUB, todayOffset);
+      d = `M${sourceRightX},${sourceCenterY} L${elbowX},${sourceCenterY} L${elbowX},${targetCenterY} L${tipX},${targetCenterY}`;
+    } else {
+      // spazio bianco subito sotto la barra sorgente (sopra, se il dipendente sta più
+      // in alto nell'elenco), dove corre il tratto orizzontale centrale
+      const goingDown = targetIdx > sourceIdx;
+      const gapY = goingDown ? (sourceIdx + 1) * ROW_HEIGHT : sourceIdx * ROW_HEIGHT;
+      // due tratti diritti della stessa lunghezza: uno appena usciti dalla barra
+      // sorgente (prima di scendere/salire nello spazio bianco), uno appena prima
+      // della punta — entrambi scostati dalla linea "oggi" se ci cadono sopra
+      const stubOutX = keepAwayFromTodayLine(sourceRightX + DEP_ARROW_STUB, todayOffset);
+      const elbowX = keepAwayFromTodayLine(tipX - DEP_ARROW_STUB, todayOffset);
+      d =
+        `M${sourceRightX},${sourceCenterY} ` +
+        `L${stubOutX},${sourceCenterY} ` +
+        `L${stubOutX},${gapY} ` +
+        `L${elbowX},${gapY} ` +
+        `L${elbowX},${targetCenterY} ` +
+        `L${tipX},${targetCenterY}`;
+    }
+
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", d);
+    path.setAttribute("class", "gantt-dep-arrow");
+    path.setAttribute("marker-end", "url(#gantt-arrowhead)");
+    svg.appendChild(path);
+  }
+
+  // indicatori (nodeId+direzione) che "partecipano" alla selezione corrente: quello
+  // cliccato più, per ciascuna freccia completa che ne deriva, l'indicatore all'altro suo
+  // estremo (l'uscente della sorgente per una selezione entrante, l'entrante di ogni
+  // dipendente per una selezione uscente) — così l'intero percorso evidenziato in rosso
+  // si riconosce a colpo d'occhio anche sui piccoli indicatori, non solo sulla freccia
+  function computeParticipatingIndicators() {
+    const participating = new Set();
+    if (!activeDepsSelection) return participating;
+    const { nodeId, direction } = activeDepsSelection;
+    participating.add(`${nodeId}:${direction}`);
+    if (direction === "in") {
+      const node = rows[rowIndexById.get(nodeId)]?.node;
+      (node?.dependency_ids || []).forEach((depId) => {
+        if (visibleIds.has(depId)) participating.add(`${depId}:out`);
+      });
+    } else {
+      (dependentsOf.get(nodeId) || []).forEach((depNode) => participating.add(`${depNode.id}:in`));
+    }
+    return participating;
+  }
+
+  // gli indicatori (piccola freccia, vedi createDepIndicator) restano sempre visibili; solo
+  // le frecce COMPLETE sono mostrate su richiesta, una direzione alla volta, per evitare il
+  // "groviglio di spaghetti" di mostrarle tutte insieme
+  function updateDepIndicatorsActiveState() {
+    const participating = computeParticipatingIndicators();
+    svg.querySelectorAll(".gantt-dep-indicator").forEach((g) => {
+      g.classList.toggle("active", participating.has(`${g.dataset.nodeId}:${g.dataset.direction}`));
+    });
+  }
+
+  function toggleDepsSelection(nodeId, direction) {
+    activeDepsSelection =
+      activeDepsSelection && activeDepsSelection.nodeId === nodeId && activeDepsSelection.direction === direction
+        ? null
+        : { nodeId, direction };
+    redrawArrows();
+  }
+
   function redrawArrows() {
     [...svg.querySelectorAll("path.gantt-dep-arrow")].forEach((p) => p.remove());
+    updateDepIndicatorsActiveState();
+    if (!activeDepsSelection) return;
     const todayOffset = todayLineOffset(buckets);
-    rows.forEach((row, i) => {
-      (row.node.dependency_ids || []).forEach((depId) => {
-        if (!visibleIds.has(depId)) return;
-        const sourceIdx = rowIndexById.get(depId);
-        const sourceBar = barElements.get(depId);
-        const targetBar = barElements.get(row.node.id);
-        if (sourceIdx === undefined || !sourceBar || !targetBar) return;
-
-        const targetIdx = i;
-        const sourceCenterY = sourceIdx * ROW_HEIGHT + ROW_HEIGHT / 2;
-        const targetCenterY = targetIdx * ROW_HEIGHT + ROW_HEIGHT / 2;
-        const sourceRightX = parseFloat(sourceBar.style.left) + parseFloat(sourceBar.style.width);
-        const targetLeftX = parseFloat(targetBar.style.left);
-        const tipX = targetLeftX - DEP_ARROW_TIP_GAP; // la punta si ferma prima della barra, senza entrarci
-
-        let d;
-        if (tipX - DEP_ARROW_STUB >= sourceRightX) {
-          // c'è abbastanza spazio in avanti da percorrere anche l'intero tratto
-          // orizzontale di entrata (DL della dipendenza < EX del dipendente meno la
-          // lunghezza di quel tratto): non c'è bisogno di tornare indietro, si va dritti
-          // in avanti e si scende/sale, senza passare dallo spazio bianco fra la barra
-          // sorgente e quella adiacente — l'ultimo tratto, quello che entra nella punta,
-          // resta comunque orizzontale e della stessa lunghezza dell'altro caso
-          const elbowX = keepAwayFromTodayLine(tipX - DEP_ARROW_STUB, todayOffset);
-          d = `M${sourceRightX},${sourceCenterY} L${elbowX},${sourceCenterY} L${elbowX},${targetCenterY} L${tipX},${targetCenterY}`;
-        } else {
-          // spazio bianco subito sotto la barra sorgente (sopra, se il dipendente sta più
-          // in alto nell'elenco), dove corre il tratto orizzontale centrale
-          const goingDown = targetIdx > sourceIdx;
-          const gapY = goingDown ? (sourceIdx + 1) * ROW_HEIGHT : sourceIdx * ROW_HEIGHT;
-          // due tratti diritti della stessa lunghezza: uno appena usciti dalla barra
-          // sorgente (prima di scendere/salire nello spazio bianco), uno appena prima
-          // della punta — entrambi scostati dalla linea "oggi" se ci cadono sopra
-          const stubOutX = keepAwayFromTodayLine(sourceRightX + DEP_ARROW_STUB, todayOffset);
-          const elbowX = keepAwayFromTodayLine(tipX - DEP_ARROW_STUB, todayOffset);
-          d =
-            `M${sourceRightX},${sourceCenterY} ` +
-            `L${stubOutX},${sourceCenterY} ` +
-            `L${stubOutX},${gapY} ` +
-            `L${elbowX},${gapY} ` +
-            `L${elbowX},${targetCenterY} ` +
-            `L${tipX},${targetCenterY}`;
-        }
-
-        const path = document.createElementNS(SVG_NS, "path");
-        path.setAttribute("d", d);
-        path.setAttribute("class", "gantt-dep-arrow");
-        path.setAttribute("marker-end", "url(#gantt-arrowhead)");
-        svg.appendChild(path);
+    const { nodeId, direction } = activeDepsSelection;
+    if (direction === "in") {
+      const node = rows[rowIndexById.get(nodeId)]?.node;
+      (node?.dependency_ids || []).forEach((depId) => {
+        if (visibleIds.has(depId)) drawArrow(depId, nodeId, todayOffset);
       });
+    } else {
+      (dependentsOf.get(nodeId) || []).forEach((depNode) => drawArrow(nodeId, depNode.id, todayOffset));
+    }
+  }
+
+  // piccola freccia indicatrice (senza instradamento, solo un tratto fisso): "in" = questo
+  // nodo ha almeno una dipendenza (freccia entrante a sinistra), "out" = qualcun altro
+  // dipende da questo nodo (freccia uscente a destra). Il triangolino in punta è cliccabile
+  // (area di hit invisibile e più generosa sopra di esso) e mostra/nasconde le frecce
+  // complete di quella direzione (vedi toggleDepsSelection) — non disegna mai la freccia da sé
+  function createDepIndicator(direction, nodeId, edgeX, centerY) {
+    const g = document.createElementNS(SVG_NS, "g");
+    g.setAttribute("class", "gantt-dep-indicator");
+    g.dataset.nodeId = String(nodeId);
+    g.dataset.direction = direction;
+
+    // la punta è sempre rivolta verso destra (stesso verso di percorrenza delle frecce
+    // complete): vicina alla barra per una freccia entrante, lontana per una uscente
+    const tipX = direction === "in" ? edgeX - 2 : edgeX + DEP_INDICATOR_STUB;
+    const stubStartX = direction === "in" ? edgeX - DEP_INDICATOR_STUB : edgeX + 2;
+    const baseX = tipX - DEP_INDICATOR_TRI_W;
+
+    const line = document.createElementNS(SVG_NS, "line");
+    line.setAttribute("x1", stubStartX);
+    line.setAttribute("x2", baseX);
+    line.setAttribute("y1", centerY);
+    line.setAttribute("y2", centerY);
+    line.setAttribute("class", "gantt-dep-indicator-stub");
+    g.appendChild(line);
+
+    const triangle = document.createElementNS(SVG_NS, "path");
+    triangle.setAttribute(
+      "d",
+      `M${tipX},${centerY} L${baseX},${centerY - DEP_INDICATOR_TRI_H / 2} L${baseX},${centerY + DEP_INDICATOR_TRI_H / 2} Z`
+    );
+    triangle.setAttribute("class", "gantt-dep-indicator-triangle");
+    g.appendChild(triangle);
+
+    // area cliccabile invisibile, più generosa del triangolino visibile (7-8px, scomodo da
+    // centrare col mouse), centrata sul suo punto medio
+    const hitArea = document.createElementNS(SVG_NS, "circle");
+    hitArea.setAttribute("cx", (tipX + baseX) / 2);
+    hitArea.setAttribute("cy", centerY);
+    hitArea.setAttribute("r", DEP_INDICATOR_HIT_R);
+    hitArea.setAttribute("class", "gantt-dep-indicator-hitarea");
+    hitArea.style.pointerEvents = "auto";
+    hitArea.title =
+      direction === "in" ? "Mostra le dipendenze di questo task" : "Mostra i task che dipendono da questo";
+    hitArea.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleDepsSelection(nodeId, direction);
     });
+    g.appendChild(hitArea);
+
+    svg.appendChild(g);
   }
 
   // le barre: una per riga con execution_date/deadline (per un ramo sono quelle del
@@ -711,6 +847,16 @@ function drawTimeline(rows, visibleIds) {
     bar.style.top = `${i * ROW_HEIGHT + ROW_HEIGHT * 0.2}px`;
     bar.style.height = `${ROW_HEIGHT * 0.6}px`;
     bar.title = node.title;
+
+    // indicatori di dipendenza (vedi createDepIndicator): a sinistra se questo nodo dipende
+    // da almeno un altro, a destra se almeno un altro nodo visibile dipende da questo
+    const centerY = i * ROW_HEIGHT + ROW_HEIGHT / 2;
+    if ((node.dependency_ids || []).length > 0) {
+      createDepIndicator("in", node.id, range.left + 1, centerY);
+    }
+    if ((dependentsOf.get(node.id) || []).length > 0) {
+      createDepIndicator("out", node.id, range.left + 1 + Math.max(range.width - 2, 4), centerY);
+    }
     bar.style.cursor = "pointer";
     // clic sulla barra stessa (non su una maniglia): apre la configurazione. Il controllo
     // isDragJustHappened() (vedi openEditModalUnlessDragged) serve perché, se durante il
