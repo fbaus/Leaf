@@ -1,3 +1,4 @@
+import mimetypes
 import os
 import re
 from datetime import date, datetime, timedelta
@@ -6,6 +7,15 @@ from flask import Flask, jsonify, request, render_template, send_file, session
 from werkzeug.security import check_password_hash
 from config import load_secret_key
 from database import query_db, query_one, execute_db, execute_transaction
+
+# Su alcune installazioni Windows il registro di sistema associa .js/.css a un
+# Content-Type sbagliato (es. text/plain): i browser rifiutano di eseguire
+# <script type="module"> se il server non risponde con un mimetype JS corretto.
+# Flask/Werkzeug leggono il tipo tramite mimetypes.guess_type, che si basa sul
+# registro di Windows — queste righe forzano l'associazione corretta a prescindere
+# da come è configurata la macchina che serve l'app.
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
 
 app = Flask(__name__)
 app.secret_key = load_secret_key()
