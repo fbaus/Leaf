@@ -1018,21 +1018,41 @@ def get_leaves_carico():
 
 @app.route("/tasks", methods=["GET"])
 def get_tasks():
-    tasks = query_db(
-        f"""
-        SELECT t.*,
-               (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = t.id) AS children_count,
-               {EXPIRED_SQL},
-               {DEADLINE_APPROACHING_SQL}
-        FROM tasks t
-        WHERE t.owner_id = ? OR t.committente_user_id = ?
-        ORDER BY t.id
-        """,
-        [current_user_id(), current_user_id()],
-    )
+    # ?all=1, solo per un superuser: vista di supervisione su tutto il db (tutti i progetti
+    # di tutti gli utenti), non solo i propri task come owner/committente. Il resto della
+    # funzione non cambia: la logica di "punto di vista" più sotto (confronti con
+    # current_user_id()) semplicemente non scatta per i task altrui, quindi il superuser vede
+    # lo status interno reale di ogni nodo invece della versione filtrata per il committente
+    see_all = request.args.get("all") == "1" and current_user_is_superuser()
+
+    if see_all:
+        tasks = query_db(
+            f"""
+            SELECT t.*,
+                   (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = t.id) AS children_count,
+                   {EXPIRED_SQL},
+                   {DEADLINE_APPROACHING_SQL}
+            FROM tasks t
+            ORDER BY t.id
+            """
+        )
+    else:
+        tasks = query_db(
+            f"""
+            SELECT t.*,
+                   (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = t.id) AS children_count,
+                   {EXPIRED_SQL},
+                   {DEADLINE_APPROACHING_SQL}
+            FROM tasks t
+            WHERE t.owner_id = ? OR t.committente_user_id = ?
+            ORDER BY t.id
+            """,
+            [current_user_id(), current_user_id()],
+        )
 
     users_by_id = {u["id"]: u["username"] for u in query_db("SELECT id, username FROM users")}
     for t in tasks:
+        t["owner_username"] = users_by_id.get(t["owner_id"])
         t["committente_username"] = users_by_id.get(t["committente_user_id"])
         t["executor_username"] = users_by_id.get(t["executor_user_id"])
 

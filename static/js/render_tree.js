@@ -303,6 +303,14 @@ function renderNode(node, searchText, tasksById) {
 
   row.appendChild(title);
 
+  // solo nella vista di supervisione del superuser: ogni nodo può avere un owner diverso da
+  // quello dei suoi antenati (una foglia delegata cambia owner_id senza mai spostare
+  // parent_id — vedi delega esterna/interna in app.py), quindi l'owner va mostrato per
+  // singolo nodo, non solo a livello di progetto
+  if (state.viewAllUsers && state.currentUser?.is_superuser && node.owner_username) {
+    row.appendChild(makeBadge("👤 " + node.owner_username, `Owner: ${node.owner_username}`));
+  }
+
   if (missingEstimateOnCodedProject(node, tasksById)) {
     const dot = document.createElement("span");
     dot.className = "missing-estimate-dot";
@@ -445,7 +453,9 @@ function renderUserRootRow(tree, childrenUl) {
   const title = document.createElement("span");
   title.className = "node-title";
   title.title = "Tasto destro: azioni su tutti i tuoi progetti.";
-  title.textContent = state.currentUser?.username ?? "";
+  title.textContent = state.viewAllUsers && state.currentUser?.is_superuser
+    ? "Tutti gli utenti (vista superuser)"
+    : (state.currentUser?.username ?? "");
   row.appendChild(title);
 
   row.addEventListener("contextmenu", (e) => {

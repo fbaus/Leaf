@@ -79,10 +79,13 @@ function renderFilterBar(mainPanel) {
 // percentuali (sommano a 100):
 // progetto, titolo, status, assegnato, descrizione, esecuzione, deadline
 const COLUMN_WIDTHS = [13, 22, 6, 8, 31, 10, 10];
+// stessa somma, con una colonna "Owner" in più (solo vista di supervisione del superuser —
+// vedi showOwnerColumn sotto): tolto lo spazio quasi tutto a descrizione
+const COLUMN_WIDTHS_WITH_OWNER = [13, 22, 6, 8, 23, 10, 10, 8];
 
-function renderColgroup(table) {
+function renderColgroup(table, showOwnerColumn) {
   const colgroup = document.createElement("colgroup");
-  COLUMN_WIDTHS.forEach((width) => {
+  (showOwnerColumn ? COLUMN_WIDTHS_WITH_OWNER : COLUMN_WIDTHS).forEach((width) => {
     const col = document.createElement("col");
     col.style.width = `${width}%`;
     colgroup.appendChild(col);
@@ -99,10 +102,11 @@ function renderTable(mainPanel, tasksById) {
   );
 
   const childrenByParent = childrenIndex(state.tasks);
+  const showOwnerColumn = state.viewAllUsers && !!state.currentUser?.is_superuser;
 
   const table = document.createElement("table");
   table.className = "leaves-table";
-  renderColgroup(table);
+  renderColgroup(table, showOwnerColumn);
 
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
@@ -119,6 +123,7 @@ function renderTable(mainPanel, tasksById) {
     sortableHeader(SORT_LABELS.execution_date, "execution_date", state.leafFilters.sortBy, onSort)
   );
   headRow.appendChild(sortableHeader(SORT_LABELS.deadline, "deadline", state.leafFilters.sortBy, onSort));
+  if (showOwnerColumn) headRow.appendChild(document.createElement("th")).textContent = "Owner";
   thead.appendChild(headRow);
   table.appendChild(thead);
 
@@ -289,6 +294,12 @@ function renderTable(mainPanel, tasksById) {
     const tdDeadline = document.createElement("td");
     tdDeadline.append(node.deadline || "—");
     tr.appendChild(tdDeadline);
+
+    if (showOwnerColumn) {
+      const tdOwner = document.createElement("td");
+      tdOwner.textContent = node.owner_username || "—";
+      tr.appendChild(tdOwner);
+    }
 
     if (state.highlightedDepsIds.has(node.id)) tr.classList.add("row-dep-highlight");
 

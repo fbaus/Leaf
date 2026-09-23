@@ -22,8 +22,8 @@ function postJson(url, method, body) {
   }).then(handle);
 }
 
-export function fetchTasks() {
-  return fetch("/tasks").then(handle);
+export function fetchTasks(seeAll = false) {
+  return fetch(seeAll ? "/tasks?all=1" : "/tasks").then(handle);
 }
 
 export function createTask(payload) {

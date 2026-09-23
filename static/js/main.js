@@ -16,10 +16,13 @@ const workspace = document.getElementById("workspace");
 const panelResizeHandle = document.getElementById("panel-resize-handle");
 const userInfo = document.getElementById("user-info");
 const currentUsernameEl = document.getElementById("current-username");
+const viewAllToggle = document.getElementById("view-all-toggle");
 
 function updateUserInfo() {
   currentUsernameEl.textContent = state.currentUser ? state.currentUser.username : "";
   userInfo.classList.toggle("hidden", !state.currentUser);
+  viewAllToggle.classList.toggle("hidden", !state.currentUser?.is_superuser);
+  viewAllToggle.classList.toggle("active", state.viewAllUsers);
 }
 
 function render() {
@@ -100,6 +103,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("add-root-task").addEventListener("click", () => {
     openCreateModal(null);
+  });
+
+  viewAllToggle.addEventListener("click", async () => {
+    state.viewAllUsers = !state.viewAllUsers;
+    updateUserInfo();
+    if (state.currentView === "carico") await reloadWorkload();
+    else await reload();
   });
 
   document.getElementById("expand-all").addEventListener("click", () => {

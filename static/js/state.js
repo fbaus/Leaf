@@ -19,6 +19,9 @@ export const state = {
   // grafico globale del rispettivo utente — condiviso perché gli id sono univoci in tutta l'app
   workloadCheckedEntryIds: new Set(),
   currentUser: null, // { id, username, is_superuser } dopo login/fetchMe riusciti, altrimenti null
+  // vista di supervisione, solo per un superuser (vedi toggle "Vedi tutto" in main.js):
+  // GET /tasks?all=1 invece che i soli task propri come owner/committente
+  viewAllUsers: false,
   currentView: "albero",
   expandedIds: new Set([USER_ROOT_KEY]),
   searchText: "",
@@ -55,7 +58,7 @@ export function rerender() {
 }
 
 export async function reload() {
-  state.tasks = await fetchTasks();
+  state.tasks = await fetchTasks(state.viewAllUsers && !!state.currentUser?.is_superuser);
   rerender();
 }
 
