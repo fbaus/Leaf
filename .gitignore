@@ -2,3 +2,5 @@
 *.db.backup*
 __pycache__/
 .secret_key
+venv/
+*.log
