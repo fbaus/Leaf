@@ -44,6 +44,15 @@ def enforce_retention():
 
 
 if __name__ == "__main__":
-    path = create_backup()
-    enforce_retention()
-    print(f"Backup creato: {path}")
+    # lanciato via pythonw.exe (nessuna console, per evitare il flash di cmd.exe nello
+    # scheduler) stdout/stderr non sono visibili da nessuna parte: gli errori vanno quindi
+    # anche su file, non solo stampati, altrimenti un fallimento passerebbe inosservato
+    try:
+        path = create_backup()
+        enforce_retention()
+        print(f"Backup creato: {path}")
+    except Exception:
+        import traceback
+        with open(os.path.join(BASE_DIR, "backup.log"), "a") as f:
+            f.write(f"{datetime.now()} ERRORE:\n{traceback.format_exc()}\n")
+        raise
