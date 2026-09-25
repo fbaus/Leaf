@@ -153,6 +153,10 @@ export function acceptDelegation(id) {
   return postJson(`/tasks/${id}/accept-delegation`, "POST", {});
 }
 
+export function acceptDelegationAsTicket(id) {
+  return postJson(`/tasks/${id}/accept-as-ticket`, "POST", {});
+}
+
 export function declineDelegation(id) {
   return postJson(`/tasks/${id}/decline-delegation`, "POST", {});
 }

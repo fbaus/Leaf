@@ -167,10 +167,17 @@ def require_movable_task(task_id):
     Un "ticket" (delegato ma senza un genitore che appartiene al committente — o non l'ha mai
     avuto, creato senza casa nell'albero, o l'esecutore l'ha già incorporato altrove) non ha
     invece nessuna struttura del committente da proteggere: è l'esecutore a poterlo spostare
-    liberamente nel proprio albero, esattamente come farebbe con un proprio nodo."""
+    liberamente nel proprio albero, esattamente come farebbe con un proprio nodo.
+
+    Un superuser bypassa tutte queste regole: può riposizionare qualunque nodo di qualunque
+    utente (stessa idea di "SUPERUSER vede tutto il DB" e del bypass già in delete_task) — è
+    la valvola di sicurezza per fondere manualmente due progetti paralleli che il committente
+    o l'esecutore hanno creato per errore senza accorgersene."""
     task = get_task(task_id)
     if task is None:
         return None
+    if current_user_is_superuser():
+        return task
     if task["committente_user_id"] is not None:
         parent_owner_id = None
         if task["parent_id"] is not None:
@@ -1548,7 +1555,10 @@ def move_task(task_id):
 
     new_parent = None
     if new_parent_id is not None:
-        new_parent = require_owned_task(new_parent_id)
+        # un superuser può scegliere come nuovo genitore anche un nodo che non possiede
+        # (serve proprio a poter fondere due progetti paralleli di due utenti diversi),
+        # require_owned_task resta la regola per chiunque altro
+        new_parent = get_task(new_parent_id) if current_user_is_superuser() else require_owned_task(new_parent_id)
         if new_parent is None:
             return {"error": "Nodo padre non trovato"}, 404
         if new_parent["children_count"] == 0 and new_parent["label"] == "CHIUSO":
@@ -1751,6 +1761,44 @@ def accept_delegation(task_id):
         "UPDATE tasks SET delegation_status = ?, delegation_notice = ? WHERE id = ?",
         (DELEGATION_ACCETTATA, DELEGATION_NOTICE_ACCETTATA, task_id),
     )
+    return {"status": "ok"}
+
+
+@app.route("/tasks/<int:task_id>/accept-as-ticket", methods=["POST"])
+def accept_delegation_as_ticket(task_id):
+    """Variante di accept-delegation: invece di accettarla com'è, l'esecutore la trasforma
+    subito in un ticket (banana) — utile quando riconosce che si tratta di un pezzo di un
+    progetto già delegatogli, non di qualcosa di nuovo e indipendente. Irreversibile per
+    design (nessun "ripensamento" previsto): stacca il nodo dall'albero del committente e lo
+    marca permanentemente come ticket nello stesso momento in cui accetta la delega."""
+    task = get_task(task_id)
+    if task is None or task["executor_user_id"] != current_user_id() or task["delegation_status"] != DELEGATION_IN_ATTESA:
+        return {"error": "Task non trovato"}, 404
+    if task["children_count"] > 0:
+        return {"error": "Solo una foglia senza figli può diventare un ticket"}, 409
+
+    old_parent_id = task["parent_id"]
+    execute_db(
+        """
+        UPDATE tasks SET
+            parent_id = NULL, ticket_owner_id = ?,
+            delegation_status = ?, delegation_notice = ?
+        WHERE id = ?
+        """,
+        (task["committente_user_id"], DELEGATION_ACCETTATA, DELEGATION_NOTICE_ACCETTATA, task_id),
+    )
+
+    if old_parent_id is not None:
+        # stesso ricalcolo di move_task quando un nodo lascia il suo genitore, più la
+        # ri-promozione a foglia già usata in delete_task: qui, a differenza di move_task, il
+        # vecchio genitore può restare senza figli (il nodo non va sotto un nuovo genitore ma
+        # diventa radice), quindi va gestito esplicitamente o resterebbe un ramo "fantasma"
+        # senza status né label
+        parent = get_task(old_parent_id)
+        if parent is not None and parent["children_count"] == 0 and parent["label"] is None:
+            execute_db("UPDATE tasks SET label = 'APERTO' WHERE id = ?", (old_parent_id,))
+        recompute_rollup_dates(old_parent_id)
+
     return {"status": "ok"}
 
 

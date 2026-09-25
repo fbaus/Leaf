@@ -1,7 +1,7 @@
 import {
   createTask, updateTask, setFocus, recomputeRollup,
-  fetchUsers, delegateTask, acceptDelegation, declineDelegation, ackDelegationNotice, ackEscalation,
-  confirmCompletion, rejectCompletion,
+  fetchUsers, delegateTask, acceptDelegation, acceptDelegationAsTicket, declineDelegation,
+  ackDelegationNotice, ackEscalation, confirmCompletion, rejectCompletion,
 } from "./api.js";
 import {
   STATUS_META, CLOSED_STATUSES, isLeaf, buildTree,
@@ -9,6 +9,7 @@ import {
 } from "./utils.js";
 import { state, reload } from "./state.js";
 import { renderChecklist } from "./checklist.js";
+import { showConfirmDialog } from "./confirm_dialog.js";
 
 const overlay = document.getElementById("modal-overlay");
 const form = document.getElementById("node-form");
@@ -53,6 +54,7 @@ const fieldAssegnazioneExecutorWrapper = document.getElementById("field-assegnaz
 const fieldAssegnazioneExecutorInfo = document.getElementById("field-assegnazione-executor-info");
 const fieldAssegnazioneExecutorActions = document.getElementById("field-assegnazione-executor-actions");
 const acceptDelegationBtn = document.getElementById("accept-delegation-btn");
+const acceptAsTicketBtn = document.getElementById("accept-as-ticket-btn");
 const declineDelegationBtn = document.getElementById("decline-delegation-btn");
 const fieldAssegnazioneCommittenteWrapper = document.getElementById("field-assegnazione-committente-wrapper");
 const fieldAssegnazioneCommittenteInfo = document.getElementById("field-assegnazione-committente-info");
@@ -303,6 +305,9 @@ function applyAssegnazioneSection(node, isOwner) {
     const pending = node.delegation_status !== "accettata";
     fieldAssegnazioneExecutorActions.classList.remove("hidden");
     acceptDelegationBtn.classList.toggle("hidden", !pending);
+    // ha senso solo su una delega pendente "normale" (non su un ticket, già staccato dal suo
+    // committente: trasformarlo di nuovo non farebbe nulla di utile)
+    acceptAsTicketBtn.classList.toggle("hidden", !pending || node.ticket_owner_id != null);
     declineDelegationBtn.textContent = pending ? "Rifiuta" : "Interrompi delega";
   } else {
     fieldAssegnazioneEditableWrapper.classList.remove("hidden");
@@ -342,6 +347,23 @@ acceptDelegationBtn.addEventListener("click", async () => {
   if (editingId === null) return;
   try {
     await acceptDelegation(editingId);
+    closeModal();
+    afterSaveCallback();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+acceptAsTicketBtn.addEventListener("click", async () => {
+  if (editingId === null) return;
+  // irreversibile (nessun "ripensamento" previsto, deciso insieme all'utente): un solo
+  // popup di conferma prima di staccarla per sempre dall'albero del committente
+  const ok = await showConfirmDialog(
+    "Il task verrà staccato dall'albero del committente e trasformato in banana in modo permanente, e la delega verrà accettata. Confermi?"
+  );
+  if (!ok) return;
+  try {
+    await acceptDelegationAsTicket(editingId);
     closeModal();
     afterSaveCallback();
   } catch (err) {

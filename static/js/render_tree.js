@@ -244,13 +244,17 @@ function renderNode(node, searchText, tasksById) {
   else if (node.escalation) row.classList.add("row-escalation");
   if (state.highlightedDepsIds.has(node.id)) row.classList.add("row-dep-highlight");
   // chi può "prendere" il nodo per spostarlo, mirror di require_movable_task in app.py: un
-  // task delegato internamente ANCORATO nell'albero del committente (il suo genitore
-  // attuale appartiene a lui) si sposta solo dal committente; un "ticket" (nessun genitore
-  // che appartiene al committente — non l'ha mai avuto, o l'esecutore l'ha già incorporato
-  // altrove) si sposta liberamente dall'esecutore, come un proprio nodo; per tutti gli
-  // altri nodi resta il solo owner, come prima
+  // superuser può sempre prenderlo (bypassa tutto il resto, serve a poter fondere due
+  // progetti paralleli); altrimenti un task delegato internamente ANCORATO nell'albero del
+  // committente (il suo genitore attuale appartiene a lui) si sposta solo dal committente;
+  // un "ticket" (nessun genitore che appartiene al committente — non l'ha mai avuto, o
+  // l'esecutore l'ha già incorporato altrove) si sposta liberamente dall'esecutore, come un
+  // proprio nodo; per tutti gli altri nodi resta il solo owner, come prima
+  const isSuperuser = !!state.currentUser?.is_superuser;
   let canDragOut;
-  if (node.committente_user_id != null) {
+  if (isSuperuser) {
+    canDragOut = true;
+  } else if (node.committente_user_id != null) {
     const parent = node.parent_id != null ? tasksById[node.parent_id] : null;
     const anchoredInCommittenteTree = parent != null && parent.owner_id === node.committente_user_id;
     canDragOut = anchoredInCommittenteTree
@@ -261,9 +265,10 @@ function renderNode(node, searchText, tasksById) {
   }
   // chi può "accettare" il nodo trascinato come figlio: sempre e solo l'owner (stessa
   // autorizzazione di "Aggiungi foglia") — il committente può riposizionare un task delegato
-  // fra i propri rami, ma non creargli figli sotto, che restano affari dell'esecutore
+  // fra i propri rami, ma non creargli figli sotto, che restano affari dell'esecutore. Il
+  // superuser bypassa anche questo, mirror di move_task in app.py
   if (canDragOut) attachDragSource(row, node);
-  if (isOwner) attachDropTarget(row, node);
+  if (isOwner || isSuperuser) attachDropTarget(row, node);
 
   const hasChildren = node.children.length > 0;
   let childrenUl = null;

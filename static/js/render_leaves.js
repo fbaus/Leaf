@@ -99,7 +99,12 @@ function renderColgroup(table, showOwnerColumn) {
 function renderTable(mainPanel, tasksById) {
   let leaves = state.tasks.filter((n) => isLeafForViewer(n, state.currentUser?.id));
   leaves = leaves.filter((n) => matchesStatusGroup(n, state.leafFilters.statusGroup));
-  leaves = leaves.filter((n) => isRootIncluded(rootIdOf(n, tasksById)));
+  // una banana non compare mai nel filtro "Progetti" (getRootNodes la esclude, non è un
+  // progetto selezionabile) — quindi non può nemmeno essere esclusa da esso: se il filtro
+  // per progetto la escludesse, sparirebbe dalla tabella non appena l'utente deseleziona
+  // anche un solo progetto (rootIds passa da null/nessun-filtro a un Set concreto che non
+  // la contiene mai), pur non avendo nulla a che fare con quella scelta
+  leaves = leaves.filter((n) => n.ticket_owner_id != null || isRootIncluded(rootIdOf(n, tasksById)));
   leaves = sortRows(
     leaves, tasksById, state.leafFilters.sortBy, state.leafFilters.dateSecondarySort, state.currentUser?.id
   );
