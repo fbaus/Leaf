@@ -27,8 +27,11 @@ import { toggleDependencyHighlight } from "./deps_highlight.js";
 import { renderCalendarOverlay, CHART_ROW_HEIGHT, isWorkloadChartVisible } from "./render_calendar.js";
 import { showContextMenu } from "./context_menu.js";
 
+// esclude i ticket (radici solo perché senza casa nell'albero, non veri progetti — vedi
+// isTicketOfMine in utils.js) dal filtro "Progetti": ticket_owner_id resta valorizzato in
+// ogni stato del ticket (anche rifiutato/non assegnato), a differenza di committente_user_id
 function getRootNodes(tasks) {
-  return tasks.filter((t) => t.parent_id === null);
+  return tasks.filter((t) => t.parent_id === null && t.ticket_owner_id == null);
 }
 
 function isRootIncluded(rootId) {
@@ -180,6 +183,13 @@ function renderTable(mainPanel, tasksById) {
     titleText.textContent = node.title;
     titleText.title = "Vai nell'albero";
     titleText.onclick = () => jumpToTree(node.id);
+
+    // 🍌 permanente (a differenza di 🤝 qui sotto): distingue una banana da una delega interna
+    // nata da una foglia già del committente — stessa condizione di render_tree.js. A sinistra
+    // del titolo, non a destra come gli altri badge di questa riga.
+    if (node.ticket_owner_id != null) {
+      titleRow.appendChild(makeBadge("🍌", "Banana ricevuta da un collega", null, "delegation-badge"));
+    }
     titleRow.appendChild(titleText);
 
     // pallino rosso permanente: foglia aperta, non delegata, di un progetto con codice,

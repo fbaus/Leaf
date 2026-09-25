@@ -8,6 +8,7 @@ import {
   escapeHtml,
   byId,
   rootProjectCode,
+  isTicketOfMine,
   STATUS_IN_LISTA,
 } from "./utils.js";
 import { deleteTask, setFocus, moveTask, resetAllNotifications } from "./api.js";
@@ -186,9 +187,15 @@ function nodeContextMenuItems(node, hasChildren, isOwner) {
     onClick: () => openEditModal(node),
   });
 
-  // un task delegato non è mai eliminabile dal suo esecutore (che pure ne è owner), solo
-  // da un superuser — stesso divieto imposto lato server in delete_task
-  const canDelete = isOwner && (node.executor_user_id == null || state.currentUser?.is_superuser);
+  // mirror di delete_task in app.py: un superuser può sempre eliminare (anche nodi altrui,
+  // non solo i propri); altrimenti solo il proprietario, mai un task delegato (executor_user_id
+  // set) né un ticket già chiuso (resta nel log del committente)
+  const isSuperuser = !!state.currentUser?.is_superuser;
+  const canDelete = isSuperuser || (
+    isOwner
+    && node.executor_user_id == null
+    && !(node.ticket_owner_id != null && node.label === "CHIUSO")
+  );
   if (canDelete) {
     items.push({
       label: "Elimina",
@@ -236,12 +243,22 @@ function renderNode(node, searchText, tasksById) {
   if (node.expired) row.classList.add("row-expired");
   else if (node.escalation) row.classList.add("row-escalation");
   if (state.highlightedDepsIds.has(node.id)) row.classList.add("row-dep-highlight");
-  // chi può "prendere" il nodo per spostarlo: per un task delegato internamente è SOLO il
-  // committente (mai l'esecutore, vedi require_movable_task in app.py); per tutti gli altri
-  // nodi resta il solo owner, come prima
-  const canDragOut = node.committente_user_id != null
-    ? node.committente_user_id === state.currentUser?.id
-    : isOwner;
+  // chi può "prendere" il nodo per spostarlo, mirror di require_movable_task in app.py: un
+  // task delegato internamente ANCORATO nell'albero del committente (il suo genitore
+  // attuale appartiene a lui) si sposta solo dal committente; un "ticket" (nessun genitore
+  // che appartiene al committente — non l'ha mai avuto, o l'esecutore l'ha già incorporato
+  // altrove) si sposta liberamente dall'esecutore, come un proprio nodo; per tutti gli
+  // altri nodi resta il solo owner, come prima
+  let canDragOut;
+  if (node.committente_user_id != null) {
+    const parent = node.parent_id != null ? tasksById[node.parent_id] : null;
+    const anchoredInCommittenteTree = parent != null && parent.owner_id === node.committente_user_id;
+    canDragOut = anchoredInCommittenteTree
+      ? node.committente_user_id === state.currentUser?.id
+      : node.executor_user_id === state.currentUser?.id;
+  } else {
+    canDragOut = isOwner;
+  }
   // chi può "accettare" il nodo trascinato come figlio: sempre e solo l'owner (stessa
   // autorizzazione di "Aggiungi foglia") — il committente può riposizionare un task delegato
   // fra i propri rami, ma non creargli figli sotto, che restano affari dell'esecutore
@@ -299,6 +316,15 @@ function renderNode(node, searchText, tasksById) {
   // dover aprire la Configurazione o passare dal filtro Con codice/Senza codice di Foglie
   if (node.parent_id === null && node.project_code) {
     row.appendChild(makeBadge("🎖️", `Codice progetto: ${node.project_code}`));
+  }
+
+  // 🍌 distingue una banana (arrivata dal canale di delega "ticket", senza una vera casa
+  // nell'albero di chi l'ha creata) da un progetto vero e da una delega interna nata da una
+  // foglia già del committente: permanente, in ogni stato (in attesa/accettata/completata),
+  // a differenza di 🤝 che segnala solo le due fasi di attesa-decisione — vedi ticket_owner_id
+  // in app.py. A sinistra del titolo, non a destra come gli altri badge.
+  if (node.ticket_owner_id != null) {
+    row.appendChild(makeBadge("🍌", "Banana ricevuta da un collega", null, "delegation-badge"));
   }
 
   row.appendChild(title);
@@ -474,8 +500,13 @@ export function renderTree(container) {
   renderSearchBox(container);
 
   const searchText = state.searchText.trim();
-  const tree = buildTree(state.tasks);
   const tasksById = byId(state.tasks);
+  // i ticket (foglie di cui l'utente è committente ma senza un genitore suo visibile) non
+  // sono un suo progetto: vanno esclusi dall'Albero e vivono solo nella vista Ticket, vedi
+  // isTicketOfMine in utils.js
+  const tree = buildTree(state.tasks).filter(
+    (n) => !isTicketOfMine(n, state.currentUser?.id)
+  );
 
   if (searchText) {
     const expandForSearch = (nodes) => {

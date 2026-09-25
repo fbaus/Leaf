@@ -3,7 +3,8 @@ import { renderTree } from "./render_tree.js";
 import { renderLeaves } from "./render_leaves.js";
 import { renderWorkload } from "./render_workload.js";
 import { renderNotesSidePanel } from "./render_notes.js";
-import { openCreateModal, initModal } from "./modal.js";
+import { renderTicket } from "./render_ticket.js";
+import { openCreateModal, openCreateTicketModal, initModal } from "./modal.js";
 import { captureFocus, restoreFocus } from "./focus.js";
 import { refreshGanttIfOpen } from "./render_gantt.js";
 import { fetchMe } from "./api.js";
@@ -46,9 +47,12 @@ function render() {
     renderLeaves(mainPanel, sidePanel);
   } else if (state.currentView === "carico") {
     renderWorkload(mainPanel, sidePanel);
+  } else if (state.currentView === "ticket") {
+    renderTicket(mainPanel, sidePanel, sideFocus);
   }
 
-  const customWidth = state.currentView === "albero" && state.sidePanelWidth !== null;
+  const customWidth =
+    (state.currentView === "albero" || state.currentView === "ticket") && state.sidePanelWidth !== null;
   sidePanel.style.width = customWidth ? `${state.sidePanelWidth}px` : "";
   sidePanel.style.maxWidth = customWidth ? "none" : "";
 
@@ -103,6 +107,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("add-root-task").addEventListener("click", () => {
     openCreateModal(null);
+  });
+
+  document.getElementById("add-ticket-task").addEventListener("click", () => {
+    openCreateTicketModal();
   });
 
   viewAllToggle.addEventListener("click", async () => {

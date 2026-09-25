@@ -42,6 +42,13 @@ CREATE TABLE tasks (
   -- effettivamente delegato, mai ereditati dai discendenti (a differenza di project_code)
   committente_user_id INTEGER REFERENCES users(id),
   executor_user_id    INTEGER REFERENCES users(id),
+  -- canale "ticket": valorizzato una volta sola alla creazione (mai più toccato da delega/
+  -- accettazione/rifiuto/completamento), a differenza di committente_user_id che segue la
+  -- delega attiva e torna NULL se il ticket viene rifiutato/interrotto. Serve a ricordare
+  -- "di chi è questo ticket" anche quando non è delegato a nessuno (rifiutato, da rinviare),
+  -- così la vista Ticket e l'esclusione dall'Albero restano stabili in ogni stato — vedi
+  -- isTicketOfMine in utils.js
+  ticket_owner_id INTEGER REFERENCES users(id),
   delegation_status TEXT CHECK (delegation_status IS NULL OR delegation_status IN ('in_attesa','accettata')),
   delegation_notice TEXT CHECK (delegation_notice IS NULL OR delegation_notice IN ('posticipata','anticipata','accettata')),
   -- foglia delegata chiusa come COMPLETATO in attesa di conferma del committente (fase di
@@ -70,6 +77,7 @@ CREATE UNIQUE INDEX idx_tasks_focus_unique ON tasks(owner_id) WHERE focus = 1;
 CREATE UNIQUE INDEX idx_tasks_project_code ON tasks(project_code) WHERE project_code IS NOT NULL;
 CREATE INDEX idx_tasks_committente_user_id ON tasks(committente_user_id) WHERE committente_user_id IS NOT NULL;
 CREATE INDEX idx_tasks_executor_user_id ON tasks(executor_user_id) WHERE executor_user_id IS NOT NULL;
+CREATE INDEX idx_tasks_ticket_owner_id ON tasks(ticket_owner_id) WHERE ticket_owner_id IS NOT NULL;
 
 CREATE TABLE task_dependencies (
   task_id       INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,

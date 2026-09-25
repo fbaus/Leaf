@@ -99,6 +99,16 @@ export function buildTree(tasks) {
   return roots;
 }
 
+// un "ticket" del punto di vista di currentUserId: `ticket_owner_id` (a differenza di
+// committente_user_id) è valorizzato una volta sola alla creazione e non torna mai NULL, in
+// nessuno stato — pendente, accettato, rifiutato/interrotto (tornato "in bozza", riassegnabile),
+// completato. Va quindi sempre escluso dall'Albero di chi l'ha creato (non è un suo progetto
+// vero) e mostrato solo nella vista Ticket dedicata, in ogni stato — le due viste usano questo
+// stesso helper per restare in sincrono.
+export function isTicketOfMine(node, currentUserId) {
+  return node.ticket_owner_id === currentUserId;
+}
+
 export function byId(tasks) {
   const map = {};
   tasks.forEach((t) => {
@@ -143,6 +153,41 @@ export function delegationCellText(node, currentUserId) {
   if (node.executor_user_id === currentUserId) return `Da: ${node.committente_username} (${stato})${suffix}`;
   if (node.committente_user_id === currentUserId) return `A: ${node.executor_username} (${stato})${suffix}`;
   return null;
+}
+
+// 1 giornata lavorativa = 8 ore: solo una convenzione per convertire il campo "ore" (più
+// comodo per stime brevi) nel valore in giorni che il backend salva e usa per il carico di
+// lavoro — non c'entra con CAPACITA_PRODUTTIVA_MEDIA (quella è quanto di una giornata è
+// davvero disponibile in media, questa è solo l'unità di misura dell'input)
+export const ORE_PER_GIORNO = 8;
+
+// scompone un estimated_days (unico valore, quello salvato/usato dal backend per il carico
+// di lavoro) nei due campi "giorni"/"ore" del form — solo per la UI, arrotonda alla mezz'ora
+// più vicina per evitare differenze illeggibili dovute ai decimali
+export function splitEstimatedDays(value) {
+  if (value == null) return { days: 0, hours: 0 };
+  const totalHours = Math.round(value * ORE_PER_GIORNO * 2) / 2;
+  const days = Math.floor(totalHours / ORE_PER_GIORNO);
+  const hours = Math.round((totalHours - days * ORE_PER_GIORNO) * 10) / 10;
+  return { days, hours };
+}
+
+// inverso di splitEstimatedDays: dai due campi del form al valore unico che il backend si
+// aspetta — null se entrambi vuoti/zero (nessuna stima), come il vecchio campo singolo
+export function combineEstimatedDays(daysValue, hoursValue) {
+  const days = daysValue ? Number(daysValue) : 0;
+  const hours = hoursValue ? Number(hoursValue) : 0;
+  if (!days && !hours) return null;
+  return days + hours / ORE_PER_GIORNO;
+}
+
+export function formatEstimatedDays(value) {
+  if (value == null) return "—";
+  const { days, hours } = splitEstimatedDays(value);
+  const parts = [];
+  if (days) parts.push(`${days}g`);
+  if (hours) parts.push(`${hours}h`);
+  return parts.length ? parts.join(" ") : "0g";
 }
 
 export function matchesSearch(node, text) {

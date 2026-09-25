@@ -3,7 +3,10 @@ import {
   fetchUsers, delegateTask, acceptDelegation, declineDelegation, ackDelegationNotice, ackEscalation,
   confirmCompletion, rejectCompletion,
 } from "./api.js";
-import { STATUS_META, CLOSED_STATUSES, isLeaf, buildTree } from "./utils.js";
+import {
+  STATUS_META, CLOSED_STATUSES, isLeaf, buildTree,
+  splitEstimatedDays, combineEstimatedDays, formatEstimatedDays,
+} from "./utils.js";
 import { state, reload } from "./state.js";
 import { renderChecklist } from "./checklist.js";
 
@@ -25,11 +28,6 @@ const fieldEstimatedDaysPart = document.getElementById("field-estimated-days-par
 const fieldEstimatedHoursPart = document.getElementById("field-estimated-hours-part");
 const fieldCaricoLavoro = document.getElementById("field-carico-lavoro");
 const fieldCaricoLavoroBranch = document.getElementById("field-carico-lavoro-branch");
-// 1 giornata lavorativa = 8 ore: solo una convenzione per convertire il campo "ore" (più
-// comodo per stime brevi) nel valore in giorni che il backend salva e usa per il carico di
-// lavoro — non c'entra con CAPACITA_PRODUTTIVA_MEDIA (quella è quanto di una giornata è
-// davvero disponibile in media, questa è solo l'unità di misura dell'input)
-const ORE_PER_GIORNO = 8;
 // deve combaciare con STATUS_META[9]/STATUS_COMPLETATO in app.py: nessuna delle due parti
 // espone questo valore come costante condivisa, va tenuto sincronizzato a mano
 const STATUS_COMPLETATO = 9;
@@ -46,6 +44,7 @@ const fieldStatusComputed = document.getElementById("field-status-computed");
 const fieldStatusClosedWrapper = document.getElementById("field-status-closed-wrapper");
 const fieldStatus = document.getElementById("field-status");
 const fieldAssegnato = document.getElementById("field-assegnato");
+const fieldAssegnatoEsternaWrapper = document.getElementById("field-assegnato-esterna-wrapper");
 const fieldAssegnazioneEditableWrapper = document.getElementById("field-assegnazione-editable-wrapper");
 const fieldAssegnazioneInternaControls = document.getElementById("field-assegnazione-interna-controls");
 const fieldAssegnatoInterna = document.getElementById("field-assegnato-interna");
@@ -81,35 +80,6 @@ let creatingParentId = null;
 let afterSaveCallback = () => {};
 let selectedDependencyIds = new Set();
 let editingIsLeaf = true; // un nodo nuovo è sempre una foglia
-
-// scompone un estimated_days (unico valore, quello salvato/usato dal backend per il carico
-// di lavoro) nei due campi "giorni"/"ore" del form — solo per la UI, arrotonda alla mezz'ora
-// più vicina per evitare differenze illeggibili dovute ai decimali
-function splitEstimatedDays(value) {
-  if (value == null) return { days: 0, hours: 0 };
-  const totalHours = Math.round(value * ORE_PER_GIORNO * 2) / 2;
-  const days = Math.floor(totalHours / ORE_PER_GIORNO);
-  const hours = Math.round((totalHours - days * ORE_PER_GIORNO) * 10) / 10;
-  return { days, hours };
-}
-
-// inverso di splitEstimatedDays: dai due campi del form al valore unico che il backend si
-// aspetta — null se entrambi vuoti/zero (nessuna stima), come il vecchio campo singolo
-function combineEstimatedDays(daysValue, hoursValue) {
-  const days = daysValue ? Number(daysValue) : 0;
-  const hours = hoursValue ? Number(hoursValue) : 0;
-  if (!days && !hours) return null;
-  return days + hours / ORE_PER_GIORNO;
-}
-
-function formatEstimatedDays(value) {
-  if (value == null) return "—";
-  const { days, hours } = splitEstimatedDays(value);
-  const parts = [];
-  if (days) parts.push(`${days}g`);
-  if (hours) parts.push(`${hours}h`);
-  return parts.length ? parts.join(" ") : "0g";
-}
 
 // stesso formato di fmtPercent in render_workload.js (carico_lavoro è già arrotondato lato
 // server): "—" solo in creazione, quando il nodo non esiste ancora e non c'è nulla da
@@ -271,6 +241,25 @@ async function populateInternaSelect() {
 function applyAssegnazioneCreateMode() {
   fieldAssegnazioneEditableWrapper.classList.remove("hidden");
   fieldAssegnazioneInternaControls.classList.add("hidden");
+  fieldAssegnatoEsternaWrapper.classList.remove("hidden");
+  delegaBtn.classList.add("hidden");
+  fieldAssegnazioneExecutorWrapper.classList.add("hidden");
+  fieldAssegnazioneCommittenteWrapper.classList.add("hidden");
+  completamentoConfermaWrapper.classList.add("hidden");
+}
+
+// creazione di un ticket: a differenza della creazione normale (solo testo libero, la
+// delega interna passa sempre dal bottone Delega su un nodo già salvato), qui serve subito
+// il campo interno — submitForm incatena createTask+delegateTask in un solo submit. Niente
+// delega esterna: un ticket è concepito per un collega specifico e registrato, un nome
+// libero non ha un modo sensato di "ricevere" un ticket nella sua vista Ticket
+function applyAssegnazioneTicketCreateMode() {
+  fieldAssegnazioneEditableWrapper.classList.remove("hidden");
+  fieldAssegnazioneInternaControls.classList.remove("hidden");
+  fieldAssegnatoEsternaWrapper.classList.add("hidden");
+  fieldAssegnato.value = "";
+  fieldAssegnatoInterna.value = "";
+  populateInternaSelect();
   delegaBtn.classList.add("hidden");
   fieldAssegnazioneExecutorWrapper.classList.add("hidden");
   fieldAssegnazioneCommittenteWrapper.classList.add("hidden");
@@ -318,6 +307,10 @@ function applyAssegnazioneSection(node, isOwner) {
   } else {
     fieldAssegnazioneEditableWrapper.classList.remove("hidden");
     fieldAssegnazioneInternaControls.classList.remove("hidden");
+    // un ticket (anche se rifiutato/interrotto e quindi momentaneamente senza esecutore, di
+    // nuovo qui in questo ramo "non ancora delegato") non offre mai la delega esterna: stessa
+    // ragione della creazione, vedi applyAssegnazioneTicketCreateMode
+    fieldAssegnatoEsternaWrapper.classList.toggle("hidden", node.ticket_owner_id != null);
     delegaBtn.classList.remove("hidden");
     fieldAssegnato.value = node.assegnato || "";
     fieldAssegnatoInterna.value = "";
@@ -570,6 +563,43 @@ export function openCreateModal(parentId) {
   fieldTitle.focus();
 }
 
+// canale di delega "ticket": una foglia senza casa nell'albero del committente (parent_id
+// sempre null), creata e delegata in un solo passaggio — vedi applyAssegnazioneTicketCreateMode
+// e il ramo mode === "create-ticket" in submitForm
+export function openCreateTicketModal() {
+  mode = "create-ticket";
+  creatingParentId = null;
+  editingId = null;
+  editingIsLeaf = true;
+  selectedDependencyIds = new Set();
+
+  titleEl.textContent = "Lancia una banana";
+  form.reset();
+  nodeFieldset.disabled = false;
+  modalSubmit.classList.remove("hidden");
+  applyAssegnazioneTicketCreateMode();
+  fieldLabelWrapper.classList.remove("hidden");
+  fieldLabel.value = "APERTO";
+  fieldLabel.disabled = false;
+  updateDependenciesSummary();
+  updateLabelVisibility(null);
+  fieldDatesEditableRow.classList.remove("hidden");
+  fieldDatesComputedWrapper.classList.add("hidden");
+  fieldEstimatedEditableRow.classList.remove("hidden");
+  fieldEstimatedComputedWrapper.classList.add("hidden");
+  fieldCaricoLavoro.textContent = "(calcolato al salvataggio)";
+  // un ticket non ha mai un proprio codice progetto impostato dal committente (è
+  // l'esecutore, se lo incorpora in un progetto codificato, a determinarlo — vedi
+  // ticket_project_code in app.py): riga sempre nascosta, a differenza di "+ Progetto"
+  updateProjectCodeVisibility(null, false);
+  applyCompletionLock(false);
+  checklistWrapper.classList.add("hidden");
+  fieldFocusWrapper.classList.add("hidden");
+
+  overlay.classList.remove("hidden");
+  fieldTitle.focus();
+}
+
 function parseProjectCode(code) {
   const match = code ? /^(\d{3})-20(\d{2})$/.exec(code) : null;
   return { number: match ? match[1] : "", year: match ? match[2] : "" };
@@ -796,6 +826,33 @@ async function submitForm() {
       // (tornano operativi se il task viene riaperto in seguito)
       payload.status = fieldStatus.value ? Number(fieldStatus.value) : null;
     }
+  }
+
+  if (mode === "create-ticket") {
+    // niente delega esterna per un ticket, vedi applyAssegnazioneTicketCreateMode
+    const executorUsername = fieldAssegnatoInterna.value || null;
+    if (!executorUsername) {
+      alert("Scegli un esecutore");
+      return;
+    }
+    // delegateTask richiede una deadline già impostata (app.py): controllarlo qui, prima
+    // di creare il task, evita di lasciare orfana una foglia creata-ma-non-delegata se il
+    // secondo passo fallisse per questo motivo
+    if (!payload.deadline) {
+      alert("Serve una deadline per lanciare una banana");
+      return;
+    }
+    try {
+      payload.parent_id = null;
+      payload.is_ticket = true;
+      const created = await createTask(payload);
+      await delegateTask(created.id, { executor_username: executorUsername, external_name: null });
+      closeModal();
+      afterSaveCallback();
+    } catch (err) {
+      alert(err.message);
+    }
+    return;
   }
 
   try {

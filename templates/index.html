@@ -28,6 +28,7 @@
       <button class="view-btn active" data-view="albero">Albero</button>
       <button class="view-btn" data-view="foglie">Foglie</button>
       <button class="view-btn" data-view="carico">Carico di lavoro</button>
+      <button class="view-btn" data-view="ticket">Banane</button>
     </nav>
     <div id="user-info" class="hidden">
       <span id="current-username"></span>
@@ -40,6 +41,7 @@
     <button id="add-root-task" class="tree-only">+ Progetto</button>
     <button id="expand-all" class="tree-only">Espandi tutto</button>
     <button id="collapse-all" class="tree-only">Collassa tutto</button>
+    <button id="add-ticket-task" class="ticket-only">+ Colpisci qualcuno con una banana</button>
     <button id="view-all-toggle" class="hidden" title="Vedi tutti i progetti e nodi di tutti gli utenti (superuser)">🌐 Vedi tutto</button>
   </div>
 
@@ -190,7 +192,7 @@
                 <option value="">—</option>
               </select>
             </div>
-            <div class="form-field">
+            <div class="form-field" id="field-assegnato-esterna-wrapper">
               <label for="field-assegnato">Esterna</label>
               <input id="field-assegnato" maxlength="20" placeholder="richiede EX e DL">
             </div>

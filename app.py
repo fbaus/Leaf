@@ -157,17 +157,27 @@ def require_visible_task(task_id):
 
 def require_movable_task(task_id):
     """Chi può riposizionare un nodo nell'albero (PATCH .../parent). Un task NON delegato
-    segue la regola normale (solo l'owner). Un task delegato internamente può essere
-    spostato SOLO dal committente, mai dall'esecutore: l'esecutore lo vede comunque come
-    una radice nel proprio albero (il vero padre, del committente, non gli è visibile), quindi
-    spostarlo fra i propri rami lo scollegherebbe dalla struttura/progetto del committente
-    senza alcun beneficio — e potrebbe fargli perdere in silenzio un codice progetto
-    ereditato dal ramo originale, sostituendolo con quello (se c'è) del nuovo ramo
-    dell'esecutore, cosa che il committente non vedrebbe né deciderebbe mai."""
+    segue la regola normale (solo l'owner). Un task delegato internamente ANCORATO nell'albero
+    del committente (il suo genitore attuale appartiene a lui) può essere spostato SOLO dal
+    committente, mai dall'esecutore: l'esecutore lo vede comunque come una radice nel proprio
+    albero (il vero padre, del committente, non gli è visibile), quindi spostarlo fra i propri
+    rami lo scollegherebbe dalla struttura/progetto del committente senza alcun beneficio — e
+    potrebbe fargli perdere in silenzio un codice progetto ereditato dal ramo originale.
+
+    Un "ticket" (delegato ma senza un genitore che appartiene al committente — o non l'ha mai
+    avuto, creato senza casa nell'albero, o l'esecutore l'ha già incorporato altrove) non ha
+    invece nessuna struttura del committente da proteggere: è l'esecutore a poterlo spostare
+    liberamente nel proprio albero, esattamente come farebbe con un proprio nodo."""
     task = get_task(task_id)
     if task is None:
         return None
     if task["committente_user_id"] is not None:
+        parent_owner_id = None
+        if task["parent_id"] is not None:
+            parent = query_one("SELECT owner_id FROM tasks WHERE id = ?", [task["parent_id"]])
+            parent_owner_id = parent["owner_id"] if parent else None
+        if parent_owner_id != task["committente_user_id"]:
+            return task if task["executor_user_id"] == current_user_id() else None
         return task if task["committente_user_id"] == current_user_id() else None
     return task if task["owner_id"] == current_user_id() else None
 
@@ -334,6 +344,24 @@ def find_project_code_owner_username(project_code, exclude_task_id=None):
         args.append(exclude_task_id)
     row = query_one(query, args)
     return row["username"] if row else None
+
+
+def resolve_root_project_code_unscoped(task_id, chain_by_id):
+    """Risale parent_id ignorando deliberatamente ownership/visibilità, fino alla radice,
+    e ne restituisce il project_code. Serve al committente di un ticket per vedere il
+    codice progetto anche dopo che l'esecutore lo ha incorporato in profondità nel proprio
+    albero — una parte di struttura che al committente non è altrimenti mai visibile."""
+    seen = set()
+    current_id = task_id
+    while current_id not in seen:
+        seen.add(current_id)
+        row = chain_by_id.get(current_id)
+        if row is None:
+            return None
+        if row["parent_id"] is None:
+            return row["project_code"]
+        current_id = row["parent_id"]
+    return None
 
 
 def enforce_open_task_rules(fields, execution_date, deadline, assegnato, dependency_ids):
@@ -1056,6 +1084,22 @@ def get_tasks():
         t["committente_username"] = users_by_id.get(t["committente_user_id"])
         t["executor_username"] = users_by_id.get(t["executor_user_id"])
 
+    # codice progetto "effettivo" di un ticket, calcolato ignorando i confini di visibilità
+    # (vedi resolve_root_project_code_unscoped): serve solo a chi ha creato il ticket
+    # (ticket_owner_id, stabile anche se non delegato/rifiutato — a differenza di
+    # committente_user_id), per gli altri task resta None e la UI usa rootProjectCode()
+    # lato client come sempre
+    ticket_ids = {t["id"] for t in tasks if t["ticket_owner_id"] == current_user_id()}
+    if ticket_ids:
+        chain_by_id = {r["id"]: r for r in query_db("SELECT id, parent_id, project_code FROM tasks")}
+        for t in tasks:
+            t["ticket_project_code"] = (
+                resolve_root_project_code_unscoped(t["id"], chain_by_id) if t["id"] in ticket_ids else None
+            )
+    else:
+        for t in tasks:
+            t["ticket_project_code"] = None
+
     task_ids = {t["id"] for t in tasks}
     deps_by_task = {}
     for r in query_db("SELECT task_id, depends_on_id FROM task_dependencies"):
@@ -1262,14 +1306,22 @@ def create_task():
         if existing_owner is not None:
             return {"error": f"Codice progetto già utilizzato da {existing_owner}."}, 409
 
+    # canale "ticket" (vedi ticket_owner_id in init_db.py): una foglia creata senza casa
+    # nell'albero del creatore, per essere delegata subito a un collega esterno ai suoi
+    # progetti — sempre e solo una radice, mai sotto-attività di qualcosa
+    is_ticket = bool(data.get("is_ticket"))
+    if is_ticket and parent_id is not None:
+        return {"error": "Una banana non può avere un nodo padre"}, 400
+    ticket_owner_id = current_user_id() if is_ticket else None
+
     new_id = execute_db(
         """
         INSERT INTO tasks (parent_id, owner_id, title, description, deadline, execution_date,
-                            assegnato, label, status, estimated_days, project_code)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            assegnato, label, status, estimated_days, project_code, ticket_owner_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (parent_id, current_user_id(), title, description, deadline, execution_date, assegnato, label, status,
-         estimated_days, project_code),
+         estimated_days, project_code, ticket_owner_id),
     )
 
     statements = []
@@ -1294,7 +1346,7 @@ def create_task():
     if parent_id is not None:
         recompute_rollup_dates(parent_id)
 
-    return "", 201
+    return {"id": new_id}, 201
 
 
 @app.route("/tasks/<int:task_id>", methods=["PUT"])
@@ -1557,15 +1609,24 @@ def move_task(task_id):
 def delete_task(task_id):
     task = get_task(task_id)
     if task is not None:
+        is_superuser = current_user_is_superuser()
         if task["executor_user_id"] is not None:
             # un task delegato (in attesa o già accettato) non è mai eliminabile dal suo
-            # esecutore, che pure ne è owner: solo un superuser può farlo (e può farlo anche
-            # se non ne è lui stesso owner/esecutore — bypassa quindi il controllo di
-            # ownership standard qui sotto, che altrimenti lo bloccherebbe)
-            if not current_user_is_superuser():
+            # esecutore, che pure ne è owner: solo un superuser può farlo
+            if not is_superuser:
                 return {"error": "Solo un utente superuser può eliminare un task delegato"}, 403
         elif task["owner_id"] != current_user_id():
-            return {"error": "Task non trovato"}, 404
+            # un superuser può eliminare qualunque nodo di qualunque utente, non solo i
+            # propri (vedi "SUPERUSER vede tutto il DB"): bypassa il controllo di ownership
+            if not is_superuser:
+                return {"error": "Task non trovato"}, 404
+        elif task["ticket_owner_id"] is not None and task["label"] == "CHIUSO":
+            # un ticket chiuso (completato e confermato) resta nel log permanente del
+            # committente, come richiesto: eliminabile solo finché è ancora "in bozza" (mai
+            # stato chiuso) — es. appena creato, oppure rifiutato/interrotto dall'esecutore e
+            # tornato APERTO in attesa di essere modificato e reinviato
+            if not is_superuser:
+                return {"error": "Una banana chiusa non può essere eliminata"}, 403
     parent_id = task["parent_id"] if task is not None else None
 
     # ON DELETE CASCADE elimina automaticamente sotto-albero, note e dipendenze collegate
