@@ -3,6 +3,7 @@ import {
   isLeaf,
   isLeafForViewer,
   isOpenLeaf,
+  isTicketOfMine,
   byId,
   rootTitle,
   rootProjectCode,
@@ -27,15 +28,55 @@ import { toggleDependencyHighlight } from "./deps_highlight.js";
 import { renderCalendarOverlay, CHART_ROW_HEIGHT, isWorkloadChartVisible } from "./render_calendar.js";
 import { showContextMenu } from "./context_menu.js";
 
-// esclude i ticket (radici solo perché senza casa nell'albero, non veri progetti — vedi
-// isTicketOfMine in utils.js) dal filtro "Progetti": ticket_owner_id resta valorizzato in
-// ogni stato del ticket (anche rifiutato/non assegnato), a differenza di committente_user_id
+// esclude dal filtro "Progetti" solo le banane DI CUI SONO COMMITTENTE (isTicketOfMine): per
+// me non sono un progetto selezionabile, non ho una posizione nell'albero da cui filtrarle.
+// Per l'esecutore che le riceve, invece, sono un nodo come un altro — se ancora una radice a
+// sé, compaiono qui esattamente come un progetto di una foglia sola; se già incorporate in
+// un suo progetto reale, è quel progetto a comparire, come per qualunque discendente
 function getRootNodes(tasks) {
-  return tasks.filter((t) => t.parent_id === null && t.ticket_owner_id == null);
+  return tasks.filter((t) => t.parent_id === null && !isTicketOfMine(t, state.currentUser?.id));
 }
 
 function isRootIncluded(rootId) {
   return state.leafFilters.rootIds === null || state.leafFilters.rootIds.has(rootId);
+}
+
+// ordine "congelato" delle righe (elenco di id), per non far saltare di posizione una riga
+// quando si posticipa/anticipa una data dal calendario: un salvataggio dal calendario
+// aggiorna comunque i dati (reload() prende sempre i valori freschi), ma senza un ordine
+// congelato ogni salvataggio ririordinerebbe l'intera tabella, facendo sparire la riga da
+// dove la si stava guardando. Resta null finché l'utente non tocca un ordinamento/filtro
+// esplicito (a quel punto è giusto ripartire da un ordine fresco), oppure preme il bottone
+// di aggiornamento nella toolbar del calendario (render_calendar.js) — vive in state.js e
+// non come variabile di modulo proprio perché entrambi i file devono leggerlo/azzerarlo
+function applyFrozenOrder(leaves, tasksById) {
+  if (state.leafFilters.frozenOrder === null) {
+    const sorted = sortRows(
+      leaves, tasksById, state.leafFilters.sortBy, state.leafFilters.dateSecondarySort, state.currentUser?.id
+    );
+    state.leafFilters.frozenOrder = sorted.map((n) => n.id);
+    return sorted;
+  }
+  const remaining = new Map(leaves.map((n) => [n.id, n]));
+  const ordered = [];
+  state.leafFilters.frozenOrder.forEach((id) => {
+    const n = remaining.get(id);
+    if (n) {
+      ordered.push(n);
+      remaining.delete(id);
+    }
+  });
+  // righe non ancora nell'ordine congelato (nuove foglie, o riapparse dopo un filtro): in
+  // coda, ordinate fra loro con l'ordinamento normale
+  if (remaining.size > 0) {
+    const rest = sortRows(
+      [...remaining.values()], tasksById, state.leafFilters.sortBy, state.leafFilters.dateSecondarySort,
+      state.currentUser?.id
+    );
+    ordered.push(...rest);
+    state.leafFilters.frozenOrder.push(...rest.map((n) => n.id));
+  }
+  return ordered;
 }
 
 function renderFilterBar(mainPanel) {
@@ -48,6 +89,7 @@ function renderFilterBar(mainPanel) {
     btn.classList.toggle("active", state.leafFilters.statusGroup === groupKey);
     btn.onclick = () => {
       state.leafFilters.statusGroup = groupKey;
+      state.leafFilters.frozenOrder = null;
       rerender();
     };
     bar.appendChild(btn);
@@ -98,16 +140,20 @@ function renderColgroup(table, showOwnerColumn) {
 
 function renderTable(mainPanel, tasksById) {
   let leaves = state.tasks.filter((n) => isLeafForViewer(n, state.currentUser?.id));
+  // un discendente di un ramo marcato "chiuso" (branch_closed_status) resta APERTO e
+  // invariato altrove (Albero, Gantt, rollup...) — è solo nascosto qui in Foglie, finché il
+  // ramo non viene riaperto (vedi hidden_in_foglie in app.py)
+  leaves = leaves.filter((n) => !n.hidden_in_foglie);
   leaves = leaves.filter((n) => matchesStatusGroup(n, state.leafFilters.statusGroup));
-  // una banana non compare mai nel filtro "Progetti" (getRootNodes la esclude, non è un
-  // progetto selezionabile) — quindi non può nemmeno essere esclusa da esso: se il filtro
-  // per progetto la escludesse, sparirebbe dalla tabella non appena l'utente deseleziona
-  // anche un solo progetto (rootIds passa da null/nessun-filtro a un Set concreto che non
-  // la contiene mai), pur non avendo nulla a che fare con quella scelta
-  leaves = leaves.filter((n) => n.ticket_owner_id != null || isRootIncluded(rootIdOf(n, tasksById)));
-  leaves = sortRows(
-    leaves, tasksById, state.leafFilters.sortBy, state.leafFilters.dateSecondarySort, state.currentUser?.id
+  // una banana di cui SONO COMMITTENTE non compare mai nel filtro "Progetti" (getRootNodes la
+  // esclude, non è un progetto selezionabile per me) — quindi non può nemmeno essere esclusa
+  // da esso, altrimenti sparirebbe dalla tabella non appena deseleziono anche un solo
+  // progetto. Per l'esecutore che l'ha ricevuta, invece, rispetta il filtro come chiunque
+  // altro — è un nodo vero e proprio nel suo albero, dentro un progetto vero e selezionabile
+  leaves = leaves.filter(
+    (n) => isTicketOfMine(n, state.currentUser?.id) || isRootIncluded(rootIdOf(n, tasksById))
   );
+  leaves = applyFrozenOrder(leaves, tasksById);
 
   const childrenByParent = childrenIndex(state.tasks);
   const showOwnerColumn = state.viewAllUsers && !!state.currentUser?.is_superuser;
@@ -120,6 +166,7 @@ function renderTable(mainPanel, tasksById) {
   const headRow = document.createElement("tr");
   const onSort = (key) => {
     state.leafFilters.sortBy = key;
+    state.leafFilters.frozenOrder = null;
     rerender();
   };
   headRow.appendChild(sortableHeader(SORT_LABELS.padre, "padre", state.leafFilters.sortBy, onSort));
@@ -341,12 +388,14 @@ function renderChecklist(sidePanel) {
     // null = nessun filtro, coerente col comportamento di default (include anche i
     // progetti creati in seguito, a differenza di un Set con gli id attuali)
     state.leafFilters.rootIds = null;
+    state.leafFilters.frozenOrder = null;
     rerender();
   };
   const deselectAllBtn = document.createElement("button");
   deselectAllBtn.textContent = "Deseleziona tutti";
   deselectAllBtn.onclick = () => {
     state.leafFilters.rootIds = new Set();
+    state.leafFilters.frozenOrder = null;
     rerender();
   };
   actions.appendChild(selectAllBtn);
@@ -364,6 +413,7 @@ function renderChecklist(sidePanel) {
     state.leafFilters.rootIds = new Set(
       getRootNodes(state.tasks).filter((r) => r.project_code != null).map((r) => r.id)
     );
+    state.leafFilters.frozenOrder = null;
     rerender();
   };
   const withoutCodeBtn = document.createElement("button");
@@ -372,6 +422,7 @@ function renderChecklist(sidePanel) {
     state.leafFilters.rootIds = new Set(
       getRootNodes(state.tasks).filter((r) => r.project_code == null).map((r) => r.id)
     );
+    state.leafFilters.frozenOrder = null;
     rerender();
   };
   codeActions.appendChild(withCodeBtn);
@@ -389,6 +440,7 @@ function renderChecklist(sidePanel) {
       }
       if (checkbox.checked) state.leafFilters.rootIds.add(root.id);
       else state.leafFilters.rootIds.delete(root.id);
+      state.leafFilters.frozenOrder = null;
       rerender();
     };
     label.appendChild(checkbox);

@@ -4,7 +4,7 @@ import {
   ackDelegationNotice, ackEscalation, confirmCompletion, rejectCompletion,
 } from "./api.js";
 import {
-  STATUS_META, CLOSED_STATUSES, isLeaf, buildTree,
+  STATUS_META, CLOSED_STATUSES, BRANCH_CLOSED_STATUSES, isLeaf, buildTree,
   splitEstimatedDays, combineEstimatedDays, formatEstimatedDays,
 } from "./utils.js";
 import { state, reload } from "./state.js";
@@ -65,6 +65,10 @@ const dependenciesSummary = document.getElementById("dependencies-summary");
 const dependenciesPickerBtn = document.getElementById("dependencies-picker-btn");
 const fieldFocusWrapper = document.getElementById("field-focus-wrapper");
 const fieldFocus = document.getElementById("field-focus");
+const fieldBranchCloseRow = document.getElementById("field-branch-close-row");
+const fieldBranchLabel = document.getElementById("field-branch-label");
+const fieldBranchStatusClosedWrapper = document.getElementById("field-branch-status-closed-wrapper");
+const fieldBranchStatus = document.getElementById("field-branch-status");
 const nodeFieldset = document.getElementById("node-fieldset");
 const cancelBtn = document.getElementById("modal-cancel");
 const modalSubmit = document.getElementById("modal-submit");
@@ -90,16 +94,17 @@ function formatCaricoLavoro(value) {
   return value == null ? "—" : `${value}%`;
 }
 
-function populateStatusOptions() {
-  fieldStatus.innerHTML = "";
-  [...CLOSED_STATUSES].sort((a, b) => a - b).forEach((status) => {
+function populateClosedStatusOptions(selectEl, statuses) {
+  selectEl.innerHTML = "";
+  [...statuses].sort((a, b) => a - b).forEach((status) => {
     const opt = document.createElement("option");
     opt.value = status;
     opt.textContent = `${STATUS_META[status].symbol} ${STATUS_META[status].label}`;
-    fieldStatus.appendChild(opt);
+    selectEl.appendChild(opt);
   });
 }
-populateStatusOptions();
+populateClosedStatusOptions(fieldStatus, CLOSED_STATUSES);
+populateClosedStatusOptions(fieldBranchStatus, BRANCH_CLOSED_STATUSES);
 
 function getDescendantIds(nodeId) {
   const ids = [];
@@ -404,6 +409,14 @@ rejectCompletionBtn.addEventListener("click", async () => {
   }
 });
 
+// stesso pattern di updateLabelVisibility/fieldLabel per una foglia: mostra il riquadro
+// Status solo quando il ramo è marcato Chiuso — nessuna chiamata di rete qui, è un campo
+// come un altro, si salva col Salva generale del modale (submitForm)
+function updateBranchLabelVisibility() {
+  fieldBranchStatusClosedWrapper.classList.toggle("hidden", fieldBranchLabel.value !== "CHIUSO");
+}
+fieldBranchLabel.addEventListener("change", updateBranchLabelVisibility);
+
 // ---------------------------------------------------------------------------
 // Selettore dipendenze (ad albero, foglie e rami selezionabili, espandibile/collassabile)
 // ---------------------------------------------------------------------------
@@ -580,6 +593,7 @@ export function openCreateModal(parentId) {
   applyCompletionLock(false); // un nodo nuovo non può essere in questo stato
   checklistWrapper.classList.add("hidden"); // serve un nodo già esistente
   fieldFocusWrapper.classList.add("hidden"); // idem: il focus si attiva solo su un nodo esistente
+  fieldBranchCloseRow.classList.add("hidden"); // idem: serve un ramo già esistente con figli
 
   overlay.classList.remove("hidden");
   fieldTitle.focus();
@@ -617,6 +631,7 @@ export function openCreateTicketModal() {
   applyCompletionLock(false);
   checklistWrapper.classList.add("hidden");
   fieldFocusWrapper.classList.add("hidden");
+  fieldBranchCloseRow.classList.add("hidden");
 
   overlay.classList.remove("hidden");
   fieldTitle.focus();
@@ -697,6 +712,17 @@ function applyNodeTypeFields(node) {
   // il focus è consentito solo su una foglia APERTA, come nel menu contestuale dell'albero
   fieldFocus.checked = !!node.focus;
   fieldFocus.disabled = !leaf || node.label === "CHIUSO";
+
+  // "Stato del ramo" (chiude/riapre in blocco la visibilità in Foglie dei figli, senza
+  // toccarli): solo per l'owner, solo su un ramo vero (mai su una foglia, che ha il suo
+  // proprio Stato del task più sopra)
+  const isOwnerOfNode = node.owner_id === state.currentUser?.id;
+  fieldBranchCloseRow.classList.toggle("hidden", leaf || !isOwnerOfNode);
+  if (!leaf && isOwnerOfNode) {
+    fieldBranchLabel.value = node.branch_closed_status ? "CHIUSO" : "APERTO";
+    if (node.branch_closed_status) fieldBranchStatus.value = node.branch_closed_status;
+    updateBranchLabelVisibility();
+  }
 }
 
 // un task delegato completato E già confermato dal committente non è più modificabile
@@ -848,6 +874,11 @@ async function submitForm() {
       // (tornano operativi se il task viene riaperto in seguito)
       payload.status = fieldStatus.value ? Number(fieldStatus.value) : null;
     }
+  }
+
+  // "Stato del ramo": mutuamente esclusivo col blocco sopra (o è una foglia, o è un ramo)
+  if (!fieldBranchCloseRow.classList.contains("hidden")) {
+    payload.branch_closed_status = fieldBranchLabel.value === "CHIUSO" ? Number(fieldBranchStatus.value) : null;
   }
 
   if (mode === "create-ticket") {

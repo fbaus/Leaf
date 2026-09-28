@@ -30,6 +30,11 @@ export const state = {
     rootIds: null, // null = tutti i progetti visibili
     sortBy: "status",
     dateSecondarySort: null, // null | "execution_date" | "deadline" (bottoni EX/DL nel calendario)
+    // ordine "congelato" delle righe di Foglie (elenco di id), per non far saltare di
+    // posizione una riga quando si sposta una barra nel calendario — vedi applyFrozenOrder
+    // in render_leaves.js. Condiviso con render_calendar.js (bottone di aggiornamento nella
+    // toolbar del calendario), quindi qui in state.js e non solo variabile di modulo.
+    frozenOrder: null,
   },
   selectedNoteNodeId: null,
   focusNewNoteInput: false,

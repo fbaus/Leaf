@@ -255,10 +255,15 @@ function collectExpandableIds(nodeId) {
 }
 
 // vero se OGNI foglia discendente di questo ramo ha uno status chiuso (CLOSED_STATUSES in
-// utils.js: COMPLETATO, INTERROTTO, QUARANTENA) — usato per colorare di grigio la barra del
-// ramo nel Gantt (vedi GANTT_BRANCH_CLOSED_COLOR). Stessa logica ricorsiva di
-// collectExpandableIds, sulla lista piatta state.tasks
+// utils.js: COMPLETATO, INTERROTTO, QUARANTENA), oppure se il ramo stesso è marcato chiuso
+// (branch_closed_status — le sue foglie restano APERTO, ma il ramo va colorato di grigio
+// comunque) — usato per colorare di grigio la barra del ramo nel Gantt (vedi
+// GANTT_BRANCH_CLOSED_COLOR). Stessa logica ricorsiva di collectExpandableIds, sulla lista
+// piatta state.tasks; il controllo su branch_closed_status si propaga da solo agli antenati
+// (un ramo con un sotto-ramo "chiuso" così conta come "ogni figlio chiuso" anche per lui)
 function isBranchClosed(nodeId) {
+  const node = state.tasks.find((t) => t.id === nodeId);
+  if (node && node.branch_closed_status != null) return true;
   const children = state.tasks.filter((t) => t.parent_id === nodeId);
   if (children.length === 0) return false;
   return children.every((child) =>

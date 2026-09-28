@@ -57,6 +57,15 @@ CREATE TABLE tasks (
   -- marcare l'attesa, non un nuovo valore del suo enum (vedi CHECK sotto e gotcha CHECK
   -- incrociati in CLAUDE.md)
   completion_pending INTEGER NOT NULL DEFAULT 0 CHECK (completion_pending IN (0,1)),
+  -- un ramo può essere marcato "chiuso" senza chiudere i figli (restano APERTO, invariati):
+  -- serve solo a nascondere il sottoalbero dalla vista Foglie finché non si riapre il ramo
+  -- (reversibile). Colonna indipendente da `status`/`label` (che restano sempre NULL su un
+  -- ramo, mai riusati per questo) apposta: moltissimo codice assume che label/status siano
+  -- presenti solo su una foglia — sovrascriverli su un ramo avrebbe rischiato di rompere
+  -- silenziosamente quel presupposto altrove (calcolo status APERTO, badge, filtri...)
+  -- mai 9/COMPLETATO: chiudere un ramo dall'alto è una sospensione (Quarantena/Interrotto),
+  -- non una dichiarazione di completamento — le foglie vere restano APERTO
+  branch_closed_status INTEGER CHECK (branch_closed_status IS NULL OR branch_closed_status IN (8, 10)),
   created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   -- colonne, non CHECK, devono precedere questi vincoli a livello di tabella (grammatica SQLite)
   CHECK (

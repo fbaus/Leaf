@@ -18,6 +18,10 @@ export const STATUS_META = {
 export const STATUS_ORDER = [1, 2, 3, 5, 4, 6, 7, 8, 9, 10];
 
 export const CLOSED_STATUSES = new Set([8, 9, 10]);
+// chiudere un ramo dall'alto (branch_closed_status) è una sospensione, non un completamento:
+// le foglie vere restano APERTO, quindi COMPLETATO non ha senso qui — vedi
+// BRANCH_CLOSED_STATUSES in app.py, stessa restrizione lato server
+export const BRANCH_CLOSED_STATUSES = new Set([8, 10]);
 
 export const STATUS_IN_LISTA = 7;
 

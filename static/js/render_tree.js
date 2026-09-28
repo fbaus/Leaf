@@ -334,6 +334,16 @@ function renderNode(node, searchText, tasksById) {
 
   row.appendChild(title);
 
+  // ramo marcato "chiuso" (branch_closed_status): i figli restano APERTO e invariati, sono
+  // solo nascosti in Foglie finché non si riapre il ramo — il badge qui è l'unico indizio
+  // visivo nell'Albero, dove restano regolarmente visibili ed espandibili
+  if (hasChildren && node.branch_closed_status) {
+    const meta = STATUS_META[node.branch_closed_status];
+    row.appendChild(makeBadge(
+      meta.symbol, `Ramo chiuso (${meta.label}): le foglie sono nascoste in Foglie`, meta.color, "status-badge"
+    ));
+  }
+
   // solo nella vista di supervisione del superuser: ogni nodo può avere un owner diverso da
   // quello dei suoi antenati (una foglia delegata cambia owner_id senza mai spostare
   // parent_id — vedi delega esterna/interna in app.py), quindi l'owner va mostrato per

@@ -36,6 +36,11 @@ STATUS_COMPLETATO = 9
 STATUS_INTERROTTO = 10
 
 CLOSED_STATUSES = {STATUS_QUARANTENA, STATUS_COMPLETATO, STATUS_INTERROTTO}
+# chiudere un ramo (branch_closed_status) non ammette COMPLETATO: un ramo intero non si
+# "completa" chiudendolo dall'alto senza passare dalle sue foglie (che restano APERTO,
+# invariate) — avrebbe poco senso dichiararlo finito quando magari nessuna foglia lo è
+# davvero. Resta un'operazione di sola visibilità/temporanea sospensione del sottoalbero.
+BRANCH_CLOSED_STATUSES = {STATUS_QUARANTENA, STATUS_INTERROTTO}
 
 DELEGATION_IN_ATTESA = "in_attesa"
 DELEGATION_ACCETTATA = "accettata"
@@ -1121,6 +1126,21 @@ def get_tasks():
     resolution_cache = {}
     today = date.today().isoformat()
 
+    # un ramo "chiuso" (branch_closed_status) nasconde tutto il suo sottoalbero dalla vista
+    # Foglie, senza toccare lo stato dei figli (restano APERTO, invariati) — reversibile
+    # riaprendo il ramo. Propagazione dall'alto verso il basso, opposta a quelle già presenti
+    # più sotto (delegation_pending_descendant ecc., che risalgono da una foglia agli antenati)
+    for t in tasks:
+        t["hidden_in_foglie"] = False
+    for t in tasks:
+        if t["branch_closed_status"] is None:
+            continue
+        stack = list(children_by_parent.get(t["id"], []))
+        while stack:
+            child = stack.pop()
+            child["hidden_in_foglie"] = True
+            stack.extend(children_by_parent.get(child["id"], []))
+
     for t in tasks:
         t["dependency_ids"] = deps_by_task.get(t["id"], [])
         t["escalation"] = False
@@ -1384,6 +1404,8 @@ def update_task(task_id):
             fields["estimated_days"] = validate_estimated_days(data["estimated_days"])
         if "project_code" in data:
             fields["project_code"] = validate_project_code(data["project_code"])
+        if "branch_closed_status" in data:
+            fields["branch_closed_status"] = validate_status(data["branch_closed_status"])
     except ValueError as e:
         return {"error": str(e)}, 400
 
@@ -1416,6 +1438,15 @@ def update_task(task_id):
     label = fields.get("label", task["label"])
     if (fields.get("label") is not None or fields.get("status") is not None) and task["children_count"] > 0:
         return {"error": "Un nodo con figli non può avere status/label"}, 409
+
+    # simmetrico al controllo sopra: branch_closed_status esiste solo per un ramo (mai una
+    # foglia, che chiude sé stessa col campo Status normale) — un flag di sola visibilità in
+    # Foglie, indipendente da label/status che restano sempre NULL su un ramo
+    if "branch_closed_status" in fields:
+        if task["children_count"] == 0:
+            return {"error": "Solo un nodo con figli può avere questo campo"}, 409
+        if fields["branch_closed_status"] is not None and fields["branch_closed_status"] not in BRANCH_CLOSED_STATUSES:
+            return {"error": "Un ramo chiuso richiede status QUARANTENA o INTERROTTO"}, 400
 
     if "project_code" in fields:
         if task["parent_id"] is not None:
@@ -1650,7 +1681,11 @@ def delete_task(task_id):
         # figlio) — le altre proprietà (execution_date/deadline se presenti) restano e
         # partecipano subito al ricalcolo automatico dello status in GET /tasks
         if parent is not None and parent["children_count"] == 0 and parent["label"] is None:
-            execute_db("UPDATE tasks SET label = 'APERTO' WHERE id = ?", (parent_id,))
+            # una foglia non può avere un branch_closed_status "pendente": va azzerato qui,
+            # non solo quando qualcuno lo spegne esplicitamente riaprendo il ramo
+            execute_db(
+                "UPDATE tasks SET label = 'APERTO', branch_closed_status = NULL WHERE id = ?", (parent_id,)
+            )
 
         # il figlio eliminato non contribuisce più al rollup delle date del padre (se il
         # padre è tornato foglia, la funzione non fa nulla: le sue date restano quelle
@@ -1796,7 +1831,9 @@ def accept_delegation_as_ticket(task_id):
         # senza status né label
         parent = get_task(old_parent_id)
         if parent is not None and parent["children_count"] == 0 and parent["label"] is None:
-            execute_db("UPDATE tasks SET label = 'APERTO' WHERE id = ?", (old_parent_id,))
+            execute_db(
+                "UPDATE tasks SET label = 'APERTO', branch_closed_status = NULL WHERE id = ?", (old_parent_id,)
+            )
         recompute_rollup_dates(old_parent_id)
 
     return {"status": "ok"}

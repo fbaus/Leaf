@@ -1,4 +1,4 @@
-import { state, rerender } from "./state.js";
+import { state, rerender, reload } from "./state.js";
 import { STATUS_META } from "./utils.js";
 import {
   DRAGGABLE_GRANULARITIES,
@@ -35,6 +35,14 @@ export const CHART_ROW_HEIGHT = 64; // deve combaciare con .calendar-chart-scrol
 // grafico: esportata perché render_leaves.js deve riservargli lo spazio reale sopra la
 // <table> (vedi renderFilterBar) PRIMA che renderCalendarOverlay stessa giri — deve restare
 // l'unico posto dove questa condizione è scritta, non duplicata fra i due file
+// scroll orizzontale ricordato fra un render e l'altro: l'overlay viene ricreato da zero a
+// ogni render (mainPanel.innerHTML = "" in main.js), quindi senza questo lo scroll tornerebbe
+// sempre su "oggi" — anche solo salvando una data trascinata, o premendo il bottone di
+// aggiornamento ordinamento di Foglie. Variabile di modulo di proposito, non in state.js:
+// stessa idea di frozenOrder in render_leaves.js, un dettaglio di presentazione, non stato
+// applicativo condiviso.
+let savedScrollLeft = null;
+
 export function isWorkloadChartVisible() {
   return state.calendarOpen && state.calendarMode === "timeline";
 }
@@ -390,6 +398,23 @@ export function renderCalendarOverlay(mainPanel, leaves, opts = {}) {
     toolbar.appendChild(btn);
   });
 
+  // ricalcola l'ordinamento di Foglie (vedi frozenOrder in state.js/render_leaves.js), che
+  // resta congelato dopo un trascinamento per non far saltare di posizione la riga appena
+  // toccata — qui, non nella barra filtri di Foglie, perché è proprio un trascinamento nel
+  // calendario a "congelarlo". Non ha senso in Pianificazione/Carico di lavoro (non usano
+  // l'ordinamento di state.leafFilters), stessa condizione di EX/DL qui sotto
+  if (!hideDateSort) {
+    const refreshBtn = document.createElement("button");
+    refreshBtn.className = "filter-group-btn";
+    refreshBtn.textContent = "🔄️";
+    refreshBtn.title = "Ricalcola l'ordinamento di Foglie (rimasto congelato dopo l'ultimo trascinamento)";
+    refreshBtn.onclick = () => {
+      state.leafFilters.frozenOrder = null;
+      reload();
+    };
+    toolbar.appendChild(refreshBtn);
+  }
+
   // sorting secondario a scelta manuale (in aggiunta al criterio di ordinamento primario
   // della tabella FOGLIE), per data di esecuzione o per deadline, su tutti gli status —
   // resta valido anche in Pianificazione: determina comunque l'ordine delle righe.
@@ -489,13 +514,17 @@ export function renderCalendarOverlay(mainPanel, leaves, opts = {}) {
         if (other !== el) other.scrollLeft = el.scrollLeft;
       });
       syncing = false;
+      savedScrollLeft = el.scrollLeft;
     });
   });
 
   overlay.appendChild(proxy);
   mainPanel.appendChild(overlay);
 
-  scroll.scrollLeft = initialScrollLeft;
-  headerScroll.scrollLeft = initialScrollLeft;
-  if (chartScroll) chartScroll.scrollLeft = initialScrollLeft;
+  // la prima volta (nessuno scroll ancora ricordato) parte centrato su oggi, come sempre;
+  // da lì in poi resta dov'era l'utente, anche attraverso un rerender/reload
+  const effectiveScrollLeft = savedScrollLeft !== null ? savedScrollLeft : initialScrollLeft;
+  scroll.scrollLeft = effectiveScrollLeft;
+  headerScroll.scrollLeft = effectiveScrollLeft;
+  if (chartScroll) chartScroll.scrollLeft = effectiveScrollLeft;
 }
