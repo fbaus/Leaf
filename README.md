@@ -172,7 +172,11 @@ python manage_users.py list-users
 python manage_users.py set-password --username mario
 python manage_users.py grant-project-code --username mario
 python manage_users.py revoke-project-code --username mario
+python manage_users.py create-token --username mario    # token per il connettore Claude (sola lettura)
+python manage_users.py revoke-token --username mario
 ```
+
+I token servono al connettore per Claude Desktop (`leaf_mcp/leaf_mcp.py`): vedi [GUIDA_CONNETTORE_CLAUDE.md](GUIDA_CONNETTORE_CLAUDE.md). Su un database esistente va eseguita una tantum `python migrate_api_tokens.py`.
 
 Un utente **superuser** può eliminare un task delegato al posto dell'esecutore; l'autorizzazione **codici progetto** (`grant-project-code`) è ciò che permette di assegnare/modificare il codice progetto su un nodo radice.
 

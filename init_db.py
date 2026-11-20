@@ -17,7 +17,9 @@ CREATE TABLE users (
   password_hash          TEXT NOT NULL,
   is_superuser           INTEGER NOT NULL DEFAULT 0 CHECK (is_superuser IN (0,1)),
   can_set_project_code   INTEGER NOT NULL DEFAULT 0 CHECK (can_set_project_code IN (0,1)),
-  created_at             TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  -- SHA-256 del token API personale (connettore MCP per Claude): mai il token in chiaro
+  api_token_hash         TEXT,
+  created_at            TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
 CREATE TABLE tasks (

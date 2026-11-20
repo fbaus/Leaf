@@ -3,9 +3,9 @@ import os
 import re
 from datetime import date, datetime, timedelta
 
-from flask import Flask, jsonify, request, render_template, send_file, session
+from flask import Flask, g, jsonify, request, render_template, send_file, session
 from werkzeug.security import check_password_hash
-from config import load_secret_key
+from config import hash_api_token, load_secret_key
 from database import query_db, query_one, execute_db, execute_transaction
 
 # Su alcune installazioni Windows il registro di sistema associa .js/.css a un
@@ -97,12 +97,28 @@ PUBLIC_ENDPOINTS = {"index", "login", "logout", "static"}
 def require_login():
     if request.endpoint is None or request.endpoint in PUBLIC_ENDPOINTS:
         return None
+    # token API personale (connettore MCP di Claude, vedi manage_users.py create-token):
+    # alternativa al cookie di sessione, SOLO per richieste in lettura. Il token identifica
+    # l'utente esattamente come il login, quindi ogni route continua a filtrare per
+    # current_user_id() senza saperne nulla; la sola lettura è imposta qui, una volta, per
+    # tutte le route — un client AI non può modificare dati nemmeno per errore
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[len("Bearer "):].strip()
+        user = query_one("SELECT id FROM users WHERE api_token_hash = ?", [hash_api_token(token)]) if token else None
+        if user is None:
+            return {"error": "Token non valido"}, 401
+        if request.method not in ("GET", "HEAD"):
+            return {"error": "Il token API consente solo la lettura"}, 403
+        g.api_user_id = user["id"]
+        return None
     if "user_id" not in session:
         return {"error": "Non autenticato"}, 401
 
 
 def current_user_id():
-    return session["user_id"]
+    api_user_id = getattr(g, "api_user_id", None)
+    return api_user_id if api_user_id is not None else session["user_id"]
 
 
 def current_username():
@@ -512,13 +528,16 @@ def compute_estimated_days_rollup(node_id, tasks_by_id, children_by_parent, cach
     active_children = [
         c for c in children_by_parent.get(node_id, [])
         if not (
-            c["children_count"] == 0
-            and (
+            (c["children_count"] == 0 and (
                 c["label"] != "APERTO"
                 or c["assegnato"]
                 or c["executor_user_id"]
                 or (exclude_in_lista and c.get("status") == STATUS_IN_LISTA)
-            )
+            ))
+            # un ramo marcato "chiuso" (branch_closed_status) non contribuisce più al rollup
+            # del suo genitore: le sue foglie restano APERTO ma sono amministrativamente
+            # sospese, esattamente come una foglia chiusa/delegata qui sopra
+            or (c["children_count"] > 0 and c["branch_closed_status"] is not None)
         )
     ]
     if not active_children:
@@ -562,7 +581,7 @@ def compute_estimated_days_rollup_unscoped(node_id):
 
     children = query_db(
         """
-        SELECT id, label, assegnato, executor_user_id,
+        SELECT id, label, assegnato, executor_user_id, branch_closed_status,
                (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = tasks.id) AS children_count
         FROM tasks WHERE parent_id = ?
         """,
@@ -570,7 +589,10 @@ def compute_estimated_days_rollup_unscoped(node_id):
     )
     active_children = [
         c for c in children
-        if not (c["children_count"] == 0 and (c["label"] != "APERTO" or c["assegnato"] or c["executor_user_id"]))
+        if not (
+            (c["children_count"] == 0 and (c["label"] != "APERTO" or c["assegnato"] or c["executor_user_id"]))
+            or (c["children_count"] > 0 and c["branch_closed_status"] is not None)
+        )
     ]
     if not active_children:
         return 0.0  # tutti i figli chiusi/delegati: lavoro residuo nullo, non indeterminato
@@ -681,6 +703,11 @@ def collect_active_leaves(node_id, tasks_by_id, children_by_parent):
     for child in children:
         if child["executor_user_id"] is not None or child["assegnato"]:
             continue
+        # ramo marcato "chiuso" (branch_closed_status): fuori anche dal grafico storico,
+        # stessa esclusione di compute_carico_lavoro_rollup di cui questa è la versione
+        # "elenca le foglie"
+        if child["children_count"] > 0 and child["branch_closed_status"] is not None:
+            continue
         leaves.extend(collect_active_leaves(child["id"], tasks_by_id, children_by_parent))
     return leaves
 
@@ -706,6 +733,10 @@ def compute_carico_lavoro_rollup(node_id, tasks_by_id, children_by_parent, cache
         total = 0.0
         for child in children:
             if child["executor_user_id"] is not None or child["assegnato"]:
+                continue
+            # ramo marcato "chiuso" (branch_closed_status): sospeso dal calcolo del carico
+            # odierno, esattamente come un figlio delegato qui sopra
+            if child["children_count"] > 0 and child["branch_closed_status"] is not None:
                 continue
             total += compute_carico_lavoro_rollup(child["id"], tasks_by_id, children_by_parent, cache, today)
         result = round(total, 1)
@@ -745,10 +776,19 @@ def compute_carico_lavoro_rollup_unscoped(node_id, today=None):
             return 0.0
         return _leaf_plateau_value(row)
 
-    children = query_db("SELECT id, assegnato, executor_user_id FROM tasks WHERE parent_id = ?", [node_id])
+    children = query_db(
+        """
+        SELECT id, assegnato, executor_user_id, branch_closed_status,
+               (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = tasks.id) AS children_count
+        FROM tasks WHERE parent_id = ?
+        """,
+        [node_id],
+    )
     total = 0.0
     for child in children:
         if child["executor_user_id"] is not None or child["assegnato"]:
+            continue
+        if child["children_count"] > 0 and child["branch_closed_status"] is not None:
             continue
         total += compute_carico_lavoro_rollup_unscoped(child["id"], today)
     return round(total, 1)

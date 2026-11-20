@@ -32,3 +32,11 @@ def load_secret_key():
     with open(SECRET_KEY_PATH, "w") as f:
         f.write(key)
     return key
+
+
+def hash_api_token(token):
+    """SHA-256 esadecimale di un token API personale (connettore MCP di Claude). Il database
+    conserva solo questo hash (users.api_token_hash), mai il token in chiaro: condivisa da
+    app.py (verifica) e manage_users.py (emissione) perché devono calcolarlo identico."""
+    import hashlib
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()

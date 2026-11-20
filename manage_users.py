@@ -7,15 +7,18 @@ Uso:
   python manage_users.py set-password --username mario
   python manage_users.py grant-project-code --username mario
   python manage_users.py revoke-project-code --username mario
+  python manage_users.py create-token --username mario   (token per il connettore Claude/MCP)
+  python manage_users.py revoke-token --username mario
 """
 
 import argparse
 import getpass
+import secrets
 import sqlite3
 
 from werkzeug.security import generate_password_hash
 
-from config import DB_PATH
+from config import DB_PATH, hash_api_token
 
 
 def connect():
@@ -106,6 +109,37 @@ def set_password(username):
     print(f'Password aggiornata per "{username}".')
 
 
+def create_token(username):
+    """Emette (o rigenera, invalidando il precedente) il token API personale di un utente,
+    usato dal connettore MCP di Claude. Si memorizza solo l'hash: il token in chiaro viene
+    mostrato qui una volta sola e non è recuperabile dopo."""
+    conn = connect()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM users WHERE username = ?", (username,))
+    row = cur.fetchone()
+    if row is None:
+        print(f'Nessun utente "{username}".')
+        conn.close()
+        return
+    token = "leaf_" + secrets.token_urlsafe(32)
+    cur.execute("UPDATE users SET api_token_hash = ? WHERE id = ?", (hash_api_token(token), row[0]))
+    conn.commit()
+    conn.close()
+    print(f'Token API per "{username}" (copialo ora, non verrà più mostrato):\n')
+    print(token)
+    print("\nQuesto token dà accesso in SOLA LETTURA ai dati di questo utente: va tenuto riservato.")
+
+
+def revoke_token(username):
+    conn = connect()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET api_token_hash = NULL WHERE username = ?", (username,))
+    changed = cur.rowcount
+    conn.commit()
+    conn.close()
+    print(f'Token revocato per "{username}".' if changed else f'Nessun utente "{username}".')
+
+
 def main():
     parser = argparse.ArgumentParser(description="Gestione utenti Leaf")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -125,9 +159,19 @@ def main():
     p_revoke = sub.add_parser("revoke-project-code")
     p_revoke.add_argument("--username", required=True)
 
+    p_token = sub.add_parser("create-token")
+    p_token.add_argument("--username", required=True)
+
+    p_revoke_token = sub.add_parser("revoke-token")
+    p_revoke_token.add_argument("--username", required=True)
+
     args = parser.parse_args()
 
-    if args.command == "create-user":
+    if args.command == "create-token":
+        create_token(args.username)
+    elif args.command == "revoke-token":
+        revoke_token(args.username)
+    elif args.command == "create-user":
         create_user(args.username, args.superuser)
     elif args.command == "list-users":
         list_users()
